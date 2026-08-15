@@ -1,0 +1,102 @@
+{
+  "name": "dsh-vscode",
+  "displayName": "DeepSeek Harness",
+  "description": "Run the DeepSeek Harness web GUI inside VS Code. Desktop VS Code only; local extension host only (Remote / vscode.dev unsupported).",
+  "version": "0.1.0",
+  "publisher": "michael-lee",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "dsh.open", "title": "Open DeepSeek Harness", "category": "DSH" },
+      { "command": "dsh.openBrowser", "title": "Open in Browser", "category": "DSH" },
+      { "command": "dsh.restartServer", "title": "Restart Server", "category": "DSH" },
+      { "command": "dsh.stopServer", "title": "Stop Server", "category": "DSH" },
+      { "command": "dsh.showUrl", "title": "Show Server URL", "category": "DSH" },
+      { "command": "dsh.checkInstall", "title": "Check Installation", "category": "DSH" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh",
+          "title": "DeepSeek Harness",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh": [
+        {
+          "type": "dsh.openView",
+          "name": "DeepSeek Harness"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DeepSeek Harness",
+      "properties": {
+        "dsh.binPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to dsh's bin.js (e.g. .../node_modules/@deepseek-ai/dsh/lib/bin.js) or to a folder containing it. Empty = auto-detect dsh on PATH."
+        },
+        "dsh.openIn": {
+          "type": "string",
+          "enum": ["panel", "browser"],
+          "default": "panel",
+          "description": "Where to open the DSH GUI. 'browser' uses your system default browser."
+        },
+        "dsh.allowNpxFallback": {
+          "type": "boolean",
+          "default": false,
+          "description": "Bootstrap dsh via npx when no local install is found. Requires network access; errors distinguish 'dsh not found' from 'network failure'."
+        },
+        "dsh.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the DSH server when VS Code starts."
+        },
+        "dsh.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra dsh CLI arguments. Safety-relevant flags (--host, --port, --trusted-host) are rejected."
+        },
+        "dsh.pinnedVersion": {
+          "type": "string",
+          "default": "0.1.0-rc.6",
+          "description": "dsh version used by the npx fallback."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "compile:tests": "node esbuild.js --test",
+    "test": "npm run compile && npm run compile:tests && node --test dist-test/",
+    "package": "npm run compile && vsce package",
+    "test:smoke": "npm run compile && npm run compile:tests && node test/smoke-runner.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "mocha": "^10.8.2",
+    "typescript": "^5.6.3"
+  }
+}
