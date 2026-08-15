@@ -14,7 +14,7 @@ import { ServerManager, discoverCommand } from '../src/server-manager';
 import { DshSettings } from '../src/types';
 
 const logs: string[] = [];
-const logger = { log: (message: string) => void logs.push(message) };
+const logger = { log: (message: string) => { logs.push(message); console.log('[dsh]', message); } };
 
 const settings: DshSettings = {
   binPath: process.env.DSH_BIN_PATH ?? '',
@@ -36,68 +36,120 @@ async function dshAvailable(): Promise<boolean> {
 
 function httpStatus(url: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    const request = http.get(url, { agent: false }, (response) => {
+    const request = http.get(url, { agent: false, timeout: 5000 }, (response) => {
       response.resume();
       resolve(response.statusCode ?? 0);
     });
     request.once('error', reject);
+    request.once('timeout', () => {
+      request.destroy();
+      reject(new Error('httpStatus timeout'));
+    });
   });
 }
 
-/** Crude websocket upgrade probe: expect the server to answer the upgrade. */
-function wsProbe(host: string, port: number): Promise<boolean> {
+/**
+ * WebSocket probe against the browser mux downlink (`/api/events.mux`).
+ * Expects a `101 Switching Protocols` handshake answer. Every exit path
+ * (data/error/timeout/close) settles the promise so this can never hang.
+ */
+/**
+ * WebSocket probe against the browser mux downlink (`/api/events.mux`).
+ * Expects a `101 Switching Protocols` handshake answer. Every exit path
+ * (data/error/timeout/close) settles the promise so this can never hang.
+ *
+ * The probe retries: dsh registers its WS upgrade routes only once the
+ * apiProxy service is ready, slightly AFTER the HTTP listener starts serving,
+ * so a handshake fired immediately after HTTP-ready can race the registration.
+ * The GUI's own WS client reconnects the same way.
+ */
+function wsProbeOnce(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
+    let settled = false;
     const socket = net.connect(port, host);
-    socket.setTimeout(3000);
+    const finish = (value: boolean, why: string) => {
+      if (settled) return;
+      settled = true;
+      console.log(`wsProbe attempt settled: ${why} (received ${buffer.length} bytes: ${JSON.stringify(buffer.slice(0, 60))})`);
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(5000);
     socket.once('connect', () => {
       socket.write(
-        'GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n',
+        [
+          'GET /api/events.mux HTTP/1.1',
+          `Host: ${host}:${port}`,
+          'Upgrade: websocket',
+          'Connection: Upgrade',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
       );
     });
     let buffer = '';
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
       if (buffer.includes('\r\n\r\n')) {
-        const status = buffer.split('\r\n')[0];
-        socket.destroy();
-        // Either the webserver's WS upgrade path or any HTTP response proves the listener speaks.
-        resolve(status.includes('101') || status.includes('200') || status.includes('404') || status.includes('400'));
+        const statusLine = buffer.split('\r\n')[0];
+        finish(statusLine.includes('101'), `data (${statusLine})`);
       }
     });
-    socket.once('error', () => resolve(false));
-    socket.once('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
+    socket.once('error', (error) => finish(false, `error ${String(error)}`));
+    socket.once('timeout', () => finish(false, 'timeout'));
+    socket.once('close', () => finish(false, 'close'));
   });
+}
+
+async function wsProbe(host: string, port: number): Promise<boolean> {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    if (await wsProbeOnce(host, port)) return true;
+    console.log(`wsProbe: retry ${attempt + 1}/5 in 500ms (boot race)`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
 }
 
 describe('server-manager integration (real dsh web)', { timeout: 120000 }, () => {
   it('spawns dsh web, serves HTTP, and shuts down cleanly', async (t) => {
+    console.log('checking dsh availability...');
     if (!(await dshAvailable())) {
       t.skip('dsh not discoverable: set DSH_BIN_PATH or add dsh to PATH');
       return;
     }
+    console.log('dsh available, starting manager...');
 
     const manager = new ServerManager({ settings: () => settings, logger });
-    let url: string;
     try {
-      url = await manager.ensureUrl();
-    } catch (error) {
-      console.error('server logs:\n' + logs.join('\n'));
-      throw error;
+      let url: string;
+      try {
+        url = await manager.ensureUrl();
+      } catch (error) {
+        console.error('server logs:\n' + logs.join('\n'));
+        throw error;
+      }
+      const parsed = new URL(url);
+      console.log('step: assert host/instance');
+      assert.equal(parsed.hostname, '127.0.0.1');
+      const instance = manager.getInstance();
+      assert.ok(instance && instance.pid, 'instance should record the child pid');
+
+      console.log('step: httpStatus');
+      assert.equal(await httpStatus(url), 200);
+      console.log('step: wsProbe');
+      assert.equal(await wsProbe(parsed.hostname, Number(parsed.port)), true);
+
+      console.log('step: stop');
+      await manager.stop();
+      assert.equal(manager.getState(), 'stopped');
+      console.log('step: expect dead port');
+      await assert.rejects(httpStatus(url));
+      console.log('step: done');
+    } finally {
+      // Never leave a live dsh behind, even when an assertion failed midway.
+      manager.dispose();
     }
-    const parsed = new URL(url);
-    assert.equal(parsed.hostname, '127.0.0.1');
-    const instance = manager.getInstance();
-    assert.ok(instance && instance.pid, 'instance should record the child pid');
-
-    assert.equal(await httpStatus(url), 200);
-    assert.equal(await wsProbe(parsed.hostname, Number(parsed.port)), true);
-
-    const pid = instance!.pid!;
-    await manager.stop();
-    assert.equal(manager.getState(), 'stopped');
-    await assert.rejects(httpStatus(url));
   });
 });

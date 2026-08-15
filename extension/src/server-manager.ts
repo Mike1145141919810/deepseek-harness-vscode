@@ -43,7 +43,7 @@ export interface ResolvedCommand {
 }
 
 const HOST = '127.0.0.1';
-const START_TIMEOUT_MS = 20000;
+const START_TIMEOUT_MS = 60000;
 const HEALTH_POLL_INTERVAL_MS = 250;
 const HEALTH_REQUEST_TIMEOUT_MS = 2000;
 const SHUTDOWN_GRACE_MS = 3000;
@@ -77,6 +77,7 @@ function exists(file: string): boolean {
 export async function discoverCommand(
   settings: DshSettings,
   platform: NodeJS.Platform = process.platform,
+  pathEnv: string = process.env.PATH ?? '',
 ): Promise<ResolvedCommand> {
   const win = platform === 'win32';
 
@@ -99,7 +100,7 @@ export async function discoverCommand(
     );
   }
 
-  const onPath = await findOnPath('dsh', win);
+  const onPath = await findOnPath('dsh', win, pathEnv);
   if (onPath) {
     const needsShell = win && /\.(cmd|bat|ps1)$/i.test(onPath);
     return { kind: 'path', command: onPath, args: [], shell: needsShell };
@@ -120,10 +121,14 @@ export async function discoverCommand(
   );
 }
 
-async function findOnPath(name: string, win: boolean): Promise<string | undefined> {
+async function findOnPath(name: string, win: boolean, pathEnv: string): Promise<string | undefined> {
   const command = win ? 'where' : 'which';
   try {
-    const result = cp.execFileSync(command, [name], { encoding: 'utf8', windowsHide: true });
+    const result = cp.execFileSync(command, [name], {
+      encoding: 'utf8',
+      windowsHide: true,
+      env: { ...process.env, PATH: pathEnv },
+    });
     const first = result.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
     return first;
   } catch {
@@ -167,11 +172,21 @@ export function healthProbe(port: number, timeoutMs = HEALTH_REQUEST_TIMEOUT_MS)
   });
 }
 
-async function waitForHealthy(port: number, timeoutMs: number): Promise<boolean> {
+async function waitForHealthy(
+  port: number,
+  timeoutMs: number,
+  log?: LoggerLike,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  let lastReport = 0;
   for (;;) {
     if (await healthProbe(port)) return true;
     if (Date.now() >= deadline) return false;
+    const elapsed = Date.now() - (deadline - timeoutMs);
+    if (log && elapsed - lastReport >= 5000) {
+      lastReport = elapsed;
+      log.log(`waiting for dsh health on ${HOST}:${port} (${Math.round(elapsed / 1000)}s/${Math.round(timeoutMs / 1000)}s)`);
+    }
     await new Promise((resolve) => setTimeout(resolve, HEALTH_POLL_INTERVAL_MS));
   }
 }
@@ -189,6 +204,8 @@ export class ServerManager {
   private startPromise?: Promise<string>;
   private disposed = false;
   private restartAttempted = false;
+  /** True while WE kill the child (timeout/stop/dispose): suppress auto-restart. */
+  private intentionalExit = false;
   private readinessListeners: Array<(url: string) => void> = [];
 
   constructor(private readonly options: ServerManagerOptions) {}
@@ -278,7 +295,7 @@ export class ServerManager {
       this.handleChildExit(code, signal);
     });
 
-    const healthy = await waitForHealthy(port, START_TIMEOUT_MS);
+    const healthy = await waitForHealthy(port, START_TIMEOUT_MS, this.options.logger);
     if (!healthy || this.child !== child) {
       await this.killChild(child);
       if (!this.disposed) {
@@ -317,6 +334,12 @@ export class ServerManager {
 
   private handleChildExit(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.disposed) return;
+    if (this.intentionalExit) {
+      this.intentionalExit = false;
+      this.instance = undefined;
+      if (this.state !== 'stopping' && this.state !== 'stopped') this.setState('failed');
+      return;
+    }
     if (this.state === 'stopping' || this.state === 'stopped') {
       this.instance = undefined;
       this.setState('stopped');
@@ -357,6 +380,7 @@ export class ServerManager {
 
   private async killChild(child: cp.ChildProcess): Promise<void> {
     if (child.pid === undefined) return;
+    this.intentionalExit = true;
     if (process.platform === 'win32') {
       try {
         cp.spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {

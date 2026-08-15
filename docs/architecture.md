@@ -7,13 +7,17 @@
 
 ## Phase 0.5 iframe 可行性 spike
 
-**状态：待执行**
+**状态：协议层 ✅ 通过（2026-08-15）**
 
-- 协议层（无 VS Code）：`npm test` 中的 `server-manager.integration.test.ts` —— 真实 dsh 拉起、HTTP 200、WS upgrade 应答、关闭后端口释放。
-- 宿主层（真 VS Code）：`npm run smoke` —— 扩展开发宿主内激活扩展、`dsh.open`、服务健康。
-- 视觉/交互层（人工清单，README 验收清单）：GUI 完整加载、会话闭环、审批弹窗、skill 列表、隐藏/重开面板。
-
-结论与任何回退决策（browser 形态等）在 spike 完成后回填本节。
+- **协议层**（`npm test` 中的 `server-manager.integration.test.ts`，13/13 通过）：
+  - ServerManager 真实拉起 `dsh web --host 127.0.0.1 --port <预分配>`（本机 npx-cache 安装的 rc.6）。
+  - `GET /` → 200（SPA index + `window.__DSH_BOOT__` 注入正常）。
+  - WebSocket downlink：`/api/events.mux` 原始 upgrade 握手 → `HTTP/1.1 101`；对正在运行的 harness GUI（3080）握手同样 101 且能收到会话帧（session/subscribed 等）。
+  - 关闭序列：`taskkill /T /F` → 进程退出、端口释放（后续 GET 拒绝连接）。
+- **关键发现 1（竞态）**：dsh 的 WS upgrade 路由在 `apiProxy` 服务就绪后才注册，晚于 HTTP 监听开始应答。HTTP-ready 后立刻握手会撞空窗（upgrade 表为空 → 服务器静默销毁 socket，0 字节断连）。浏览器 GUI 自己的 WS 客户端会重连，不影响产品；测试用 5 次重试（500ms 间隔）吸收该竞态。若将来要在"就绪"判定中包含 WS 可用性，需等待 `/api/events.mux` 101。
+- **关键发现 2（排除项）**：曾怀疑继承 harness 的 `DSH_*` 环境变量干扰子进程 dsh 的 WS 行为；bisect 实验证明与 env 无关（干净 env 与完整继承 env 行为一致），根因即发现 1 的时序竞态。
+- **宿主层（真 VS Code）**：`npm run smoke`（@vscode/test-electron + 本机已装 VS Code）——待跑。
+- **视觉/交互层**（人工清单，README 验收清单）：GUI 完整加载、会话闭环、审批弹窗、skill 列表、隐藏/重开面板——待用户目视确认。
 
 ## 关键模块
 

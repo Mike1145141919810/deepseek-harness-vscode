@@ -65,11 +65,39 @@ describe('discoverCommand', () => {
     );
   });
 
-  it('fails with DSH_NOT_FOUND when nothing is on PATH and npx is off', async () => {
-    // `dsh` may exist on PATH in this environment; use an impossible name.
-    await assert.rejects(
-      discoverCommand({ ...baseSettings, binPath: '', allowNpxFallback: false }),
-      (error: unknown) => error instanceof DshError,
-    );
+  it('fails with DSH_NOT_FOUND when dsh is not on the (injected) PATH and npx is off', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-nopath-'));
+    try {
+      // Keep `where`/`which` resolvable by including the system directory.
+      const systemDir = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/usr/bin';
+      await assert.rejects(
+        discoverCommand({ ...baseSettings, binPath: '', allowNpxFallback: false }, process.platform, `${dir}${path.delimiter}${systemDir}`),
+        (error: unknown) => error instanceof DshError && error.code === 'DSH_NOT_FOUND',
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('finds a dsh shim on the injected PATH (win32)', async (t) => {
+    if (process.platform !== 'win32') {
+      t.skip('win32-only shim resolution');
+      return;
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shim-'));
+    const shim = path.join(dir, 'dsh.cmd');
+    fs.writeFileSync(shim, '@echo off\r\n');
+    try {
+      const command = await discoverCommand(
+        { ...baseSettings, binPath: '', allowNpxFallback: false },
+        process.platform,
+        `${dir}${path.delimiter}C:\\Windows\\System32`,
+      );
+      assert.equal(command.kind, 'path');
+      assert.ok(command.command.toLowerCase().endsWith('dsh.cmd'));
+      assert.equal(command.shell, true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
