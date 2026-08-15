@@ -23,12 +23,36 @@
   "activationEvents": [],
   "contributes": {
     "commands": [
-      { "command": "dsh.open", "title": "Open DeepSeek Harness", "category": "DSH" },
-      { "command": "dsh.openBrowser", "title": "Open in Browser", "category": "DSH" },
-      { "command": "dsh.restartServer", "title": "Restart Server", "category": "DSH" },
-      { "command": "dsh.stopServer", "title": "Stop Server", "category": "DSH" },
-      { "command": "dsh.showUrl", "title": "Show Server URL", "category": "DSH" },
-      { "command": "dsh.checkInstall", "title": "Check Installation", "category": "DSH" }
+      {
+        "command": "dsh.open",
+        "title": "Open DeepSeek Harness",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.openBrowser",
+        "title": "Open in Browser",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.restartServer",
+        "title": "Restart Server",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.stopServer",
+        "title": "Stop Server",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.showUrl",
+        "title": "Show Server URL",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.checkInstall",
+        "title": "Check Installation",
+        "category": "DSH"
+      }
     ],
     "viewsContainers": {
       "activitybar": [
@@ -57,7 +81,10 @@
         },
         "dsh.openIn": {
           "type": "string",
-          "enum": ["panel", "browser"],
+          "enum": [
+            "panel",
+            "browser"
+          ],
           "default": "panel",
           "description": "Where to open the DSH GUI. 'browser' uses your system default browser."
         },
@@ -71,9 +98,16 @@
           "default": false,
           "description": "Start the DSH server when VS Code starts."
         },
+        "dsh.autoWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically register the VS Code workspace folder(s) as DSH workspaces when the panel opens, so the GUI auto-selects them instead of asking for a directory."
+        },
         "dsh.extraArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Extra dsh CLI arguments. Safety-relevant flags (--host, --port, --trusted-host) are rejected."
         },

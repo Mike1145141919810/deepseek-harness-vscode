@@ -9,6 +9,8 @@ export interface DshSettings {
   allowNpxFallback: boolean;
   /** Start the server when VS Code starts. */
   autoStart: boolean;
+  /** Seed the VS Code workspace folders as DSH workspaces on open. */
+  autoWorkspace: boolean;
   /** Extra CLI args. Safety-relevant flags are rejected by the extension. */
   extraArgs: string[];
   /** Version used by the npx fallback. */

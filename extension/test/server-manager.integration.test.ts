@@ -8,10 +8,14 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { ServerManager, discoverCommand } from '../src/server-manager';
 import { DshSettings } from '../src/types';
+import { seedWorkspace, deleteWorkspace } from '../src/workspace-seed';
 
 const logs: string[] = [];
 const logger = { log: (message: string) => { logs.push(message); console.log('[dsh]', message); } };
@@ -21,6 +25,7 @@ const settings: DshSettings = {
   openIn: 'panel',
   allowNpxFallback: false,
   autoStart: false,
+  autoWorkspace: true,
   extraArgs: [],
   pinnedVersion: '0.1.0-rc.6',
 };
@@ -140,6 +145,28 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
       assert.equal(await httpStatus(url), 200);
       console.log('step: wsProbe');
       assert.equal(await wsProbe(parsed.hostname, Number(parsed.port)), true);
+
+      console.log('step: workspace seeding');
+      const seedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-seed-'));
+      let seededWorkspaceId: string | undefined;
+      try {
+        const first = await seedWorkspace(url, seedDir);
+        assert.equal(first.ok, true, `seed failed: ${first.detail}`);
+        assert.equal(first.created, true);
+        seededWorkspaceId = first.workspaceId;
+        assert.ok(seededWorkspaceId, 'create should return the workspaceId');
+        // Idempotent: re-seeding the same path resolves the same workspace.
+        const second = await seedWorkspace(url, seedDir);
+        assert.equal(second.ok, true, `re-seed failed: ${second.detail}`);
+        assert.equal(second.created, false);
+        assert.equal(second.workspaceId, seededWorkspaceId);
+      } finally {
+        if (seededWorkspaceId !== undefined) {
+          const removed = await deleteWorkspace(url, seededWorkspaceId);
+          assert.equal(removed.ok, true, `workspace cleanup failed: ${removed.detail}`);
+        }
+        fs.rmSync(seedDir, { recursive: true, force: true });
+      }
 
       console.log('step: stop');
       await manager.stop();

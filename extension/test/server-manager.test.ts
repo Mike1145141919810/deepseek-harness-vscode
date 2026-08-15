@@ -12,6 +12,7 @@ const baseSettings: DshSettings = {
   openIn: 'panel',
   allowNpxFallback: false,
   autoStart: false,
+  autoWorkspace: true,
   extraArgs: [],
   pinnedVersion: '0.1.0-rc.6',
 };
