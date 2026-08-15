@@ -49,7 +49,10 @@ export class GuiPanel {
     }
 
     const panel = vscode.window.createWebviewPanel(VIEW_TYPE, TITLE, vscode.ViewColumn.One, {
-      enableScripts: false,
+      // Must be true: VS Code applies this to the WHOLE webview context,
+      // iframe included, and the DSH SPA is a JS-rendered app. The parent
+      // document itself runs no scripts and carries a strict CSP.
+      enableScripts: true,
       retainContextWhenHidden: true,
     });
     this.panel = panel;
