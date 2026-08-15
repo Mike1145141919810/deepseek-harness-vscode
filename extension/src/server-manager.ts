@@ -40,6 +40,8 @@ export interface ResolvedCommand {
   args: string[];
   /** True when the spawn needs a shell (cmd/bat/ps1 shims on Windows). */
   shell: boolean;
+  /** True when Electron itself runs bin.js and needs ELECTRON_RUN_AS_NODE=1. */
+  electronAsNode?: boolean;
 }
 
 const HOST = '127.0.0.1';
@@ -73,6 +75,44 @@ function exists(file: string): boolean {
   }
 }
 
+/** Whether this runtime is Electron (VS Code extension host) rather than plain Node. */
+export function isElectronRuntime(versions: NodeJS.ProcessVersions = process.versions): boolean {
+  return typeof versions.electron === 'string' && versions.electron !== '';
+}
+
+/**
+ * Resolve the executable that actually runs dsh's bin.js.
+ *
+ * Inside the VS Code extension host `process.execPath` is Electron (Code.exe),
+ * which cannot run bin.js — and dsh's native modules (node-pty) are built
+ * against a real Node ABI anyway. Prefer a real `node` from PATH; only when
+ * none exists fall back to Electron itself with ELECTRON_RUN_AS_NODE=1.
+ */
+export function resolveNodeBinary(
+  pathEnv: string = process.env.PATH ?? '',
+  platform: NodeJS.Platform = process.platform,
+): { command: string; electronAsNode: boolean } {
+  if (!isElectronRuntime()) return { command: process.execPath, electronAsNode: false };
+  const found = findOnPathSync('node', platform === 'win32', pathEnv);
+  if (found !== undefined) return { command: found, electronAsNode: false };
+  return { command: process.execPath, electronAsNode: true };
+}
+
+function findOnPathSync(name: string, win: boolean, pathEnv: string): string | undefined {
+  const command = win ? 'where' : 'which';
+  try {
+    const result = cp.execFileSync(command, [name], {
+      encoding: 'utf8',
+      windowsHide: true,
+      env: { ...process.env, PATH: pathEnv },
+    });
+    const first = result.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0);
+    return first;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Locate dsh: 1) settings.binPath, 2) PATH, 3) npx (explicit opt-in). */
 export async function discoverCommand(
   settings: DshSettings,
@@ -91,7 +131,8 @@ export async function discoverCommand(
         ];
     for (const candidate of candidates) {
       if (exists(candidate)) {
-        return { kind: 'node-bin', command: process.execPath, args: [candidate], shell: false };
+        const node = resolveNodeBinary(pathEnv, platform);
+        return { kind: 'node-bin', command: node.command, args: [candidate], shell: false, electronAsNode: node.electronAsNode };
       }
     }
     throw new DshError(
@@ -207,6 +248,7 @@ export class ServerManager {
   /** True while WE kill the child (timeout/stop/dispose): suppress auto-restart. */
   private intentionalExit = false;
   private readinessListeners: Array<(url: string) => void> = [];
+  private stateListeners: Array<(state: ServerState, instance?: ServerInstance) => void> = [];
 
   constructor(private readonly options: ServerManagerOptions) {}
 
@@ -224,6 +266,10 @@ export class ServerManager {
 
   onReady(listener: (url: string) => void): void {
     this.readinessListeners.push(listener);
+  }
+
+  onStateChange(listener: (state: ServerState, instance?: ServerInstance) => void): void {
+    this.stateListeners.push(listener);
   }
 
   /** Start the server if needed; resolves to the ready URL. */
@@ -266,6 +312,8 @@ export class ServerManager {
       shell: command.shell,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Electron fallback: run Code.exe as plain Node for bin.js.
+      ...(command.electronAsNode ? { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } } : {}),
     });
     this.child = child;
     const instanceId = crypto.randomUUID();
@@ -296,7 +344,13 @@ export class ServerManager {
     });
 
     const healthy = await waitForHealthy(port, START_TIMEOUT_MS, this.options.logger);
-    if (!healthy || this.child !== child) {
+    if (this.child !== child) {
+      // The child died during startup and the auto-restart took over: never
+      // kill the replacement — report the state of the current attempt.
+      if (this.state === 'ready' && this.instance) return this.getUrl()!;
+      throw new DshError('dsh exited during startup and restarted; run the command again', 'START_FAILED');
+    }
+    if (!healthy) {
       await this.killChild(child);
       if (!this.disposed) {
         this.options.logger.log(`health probe timed out after ${START_TIMEOUT_MS}ms on port ${port}`);
@@ -410,6 +464,7 @@ export class ServerManager {
   private setState(state: ServerState, instance?: ServerInstance): void {
     this.state = state;
     this.options.onStateChange?.(state, instance);
+    for (const listener of [...this.stateListeners]) listener(state, instance);
   }
 
   dispose(): void {

@@ -38,7 +38,7 @@
     "views": {
       "dsh": [
         {
-          "type": "dsh.openView",
+          "id": "dsh.openView",
           "name": "DeepSeek Harness"
         }
       ]

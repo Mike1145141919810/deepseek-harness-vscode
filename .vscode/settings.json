@@ -1,0 +1,5 @@
+{
+  // 本机 dsh 安装位置（npx 缓存）。换机器/重装 dsh 后需要改这里，
+  // 或删掉本文件改用全局用户设置里的 dsh.binPath。
+  "dsh.binPath": "C:\\Users\\Mike Lee\\AppData\\Local\\npm-cache\\_npx\\1e7f6d9597241db0\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js"
+}

@@ -21,7 +21,7 @@ async function main() {
     process.exit(2);
   }
   const extensionDevelopmentPath = path.resolve(__dirname, '..');
-  const extensionTestsPath = path.resolve(__dirname, '..', 'dist-test', 'smoke.test.js');
+  const extensionTestsPath = path.resolve(__dirname, 'run-tests.js');
 
   const env = { ...process.env };
   if (!env.DSH_BIN_PATH && fs.existsSync(env.DSH_BIN_PATH ?? '')) {
