@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "publisher": "michael-lee",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mike1145141919810/deepseek-harness-vscode"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },

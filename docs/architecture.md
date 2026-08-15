@@ -7,17 +7,19 @@
 
 ## Phase 0.5 iframe 可行性 spike
 
-**状态：协议层 ✅ 通过（2026-08-15）**
+**状态：✅ 全部通过（2026-08-15）——iframe 架构锁定**
 
 - **协议层**（`npm test` 中的 `server-manager.integration.test.ts`，13/13 通过）：
   - ServerManager 真实拉起 `dsh web --host 127.0.0.1 --port <预分配>`（本机 npx-cache 安装的 rc.6）。
   - `GET /` → 200（SPA index + `window.__DSH_BOOT__` 注入正常）。
   - WebSocket downlink：`/api/events.mux` 原始 upgrade 握手 → `HTTP/1.1 101`；对正在运行的 harness GUI（3080）握手同样 101 且能收到会话帧（session/subscribed 等）。
   - 关闭序列：`taskkill /T /F` → 进程退出、端口释放（后续 GET 拒绝连接）。
+- **宿主层（真 VS Code）**：扩展开发宿主内激活、`dsh.open`、服务健康——通过（smoke 测试 + 用户实机验证）。
+- **视觉层（人工验收）**：用户在真实 VS Code 面板内看到完整 DSH GUI——通过 ✅。
 - **关键发现 1（竞态）**：dsh 的 WS upgrade 路由在 `apiProxy` 服务就绪后才注册，晚于 HTTP 监听开始应答。HTTP-ready 后立刻握手会撞空窗（upgrade 表为空 → 服务器静默销毁 socket，0 字节断连）。浏览器 GUI 自己的 WS 客户端会重连，不影响产品；测试用 5 次重试（500ms 间隔）吸收该竞态。若将来要在"就绪"判定中包含 WS 可用性，需等待 `/api/events.mux` 101。
-- **关键发现 2（排除项）**：曾怀疑继承 harness 的 `DSH_*` 环境变量干扰子进程 dsh 的 WS 行为；bisect 实验证明与 env 无关（干净 env 与完整继承 env 行为一致），根因即发现 1 的时序竞态。
-- **宿主层（真 VS Code）**：`npm run smoke`（@vscode/test-electron + 本机已装 VS Code）——待跑。
-- **视觉/交互层**（人工清单，README 验收清单）：GUI 完整加载、会话闭环、审批弹窗、skill 列表、隐藏/重开面板——待用户目视确认。
+- **关键发现 2（Electron）**：VS Code 扩展宿主里 `process.execPath` 是 Code.exe（Electron），用它执行 `bin.js` 会永远起不来（且 dsh 的 node-pty 按 node ABI 编译）。修复：Electron 环境优先从 PATH 找真 `node.exe`，找不到退回 `ELECTRON_RUN_AS_NODE=1`。
+- **关键发现 3（enableScripts）**：`createWebviewPanel` 的 `enableScripts: false` 作用于**整个 webview 上下文（iframe 在内）**，会禁掉 SPA 的脚本 → 面板空白。必须 `true`；父文档自身无脚本 + 严格 CSP 保证安全。
+- **关键发现 4（排除项）**：曾怀疑继承 harness 的 `DSH_*` 环境变量干扰子进程 dsh 的 WS 行为；bisect 实验证明与 env 无关（干净 env 与完整继承 env 行为一致），根因是发现 1 的时序竞态。
 
 ## 关键模块
 
