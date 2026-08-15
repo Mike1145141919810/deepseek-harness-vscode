@@ -47,6 +47,7 @@ code --install-extension dsh-vscode-0.1.0.vsix
 | `dsh.openIn` | `"panel"` | `"panel"`（编辑器区面板）或 `"browser"`（系统浏览器） |
 | `dsh.allowNpxFallback` | `false` | 本地找不到 dsh 时允许用 npx 引导安装（需联网） |
 | `dsh.autoStart` | `false` | VS Code 启动时自动拉起服务 |
+| `dsh.autoWorkspace` | `true` | 打开面板时自动把 VS Code 当前工作区文件夹注册为 DSH 工作区 |
 | `dsh.extraArgs` | `[]` | 附加 dsh 参数；`--host`/`--port`/`--trusted-host` 会被拒绝 |
 | `dsh.pinnedVersion` | `"0.1.0-rc.6"` | npx 兜底使用的版本 |
 
