@@ -70,6 +70,21 @@ describe('resolveShimScript', () => {
     }
   });
 
+  it('resolves the npm-prefix cmd shim layout (npm >= 10, no ".." segment)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-newshim-'));
+    try {
+      const shim = path.join(dir, 'dsh.cmd');
+      fs.writeFileSync(
+        shim,
+        '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js" %*\r\n',
+      );
+      const expected = path.resolve(dir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+      assert.equal(resolveShimScript(shim), path.normalize(expected));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('resolves the node script behind an sh shim', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shshim-'));
     try {

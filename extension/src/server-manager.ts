@@ -241,9 +241,11 @@ export function resolveShimScript(shimPath: string): string | undefined {
 
   let rel: string | undefined;
   if (lower.endsWith('.cmd') || lower.endsWith('.bat')) {
-    // npm cmd-shim: "%_prog%"  "%dp0%\..\@scope\pkg\lib\bin.js" %*
+    // npm cmd-shim, two layouts: inside node_modules/.bin it points at
+    // "%dp0%\..\@scope\pkg\lib\bin.js"; in the npm prefix dir (npm >= 10) at
+    // "%dp0%\node_modules\@scope\pkg\lib\bin.js" (no ".." segment).
     const candidates = [...content.matchAll(/"%dp0%(\\.+?\.js)"/gi)].map((m) => m[1]);
-    rel = candidates.find((candidate) => candidate.includes('\\..\\'));
+    rel = candidates.find((candidate) => candidate.includes('\\..\\')) ?? candidates[0];
   } else {
     // sh / ps1 shims: "$basedir/../@scope/pkg/lib/bin.js"
     const match = /\$basedir\/(\.\.\/[^"\s]+\.js)/.exec(content);
