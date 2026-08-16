@@ -123,9 +123,10 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "compile:tests": "node esbuild.js --test",
-    "test": "npm run compile && npm run compile:tests && node --test dist-test/",
-    "package": "npm run compile && vsce package",
-    "test:smoke": "npm run compile && npm run compile:tests && node test/smoke-runner.js"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run typecheck && npm run compile && npm run compile:tests && node test/run-unit-tests.js",
+    "package": "npm run typecheck && npm run compile && vsce package",
+    "test:smoke": "npm run typecheck && npm run compile && npm run compile:tests && node test/smoke-runner.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

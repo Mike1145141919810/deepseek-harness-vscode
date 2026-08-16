@@ -48,19 +48,29 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     }
   });
 
+  const openInBrowser = async (): Promise<void> => {
+    try {
+      const url = await manager.ensureUrl();
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      await vscode.window.showErrorMessage(`DeepSeek Harness: ${message}`, 'Open output').then((action) => {
+        if (action === 'Open output') logger.show();
+      });
+    }
+  };
+
   context.subscriptions.push(
-    vscode.commands.registerCommand('dsh.open', () => gui.open()),
-    vscode.commands.registerCommand('dsh.openBrowser', async () => {
-      try {
-        const url = await manager.ensureUrl();
-        await vscode.env.openExternal(vscode.Uri.parse(url));
-      } catch (error) {
-        const message = String(error instanceof Error ? error.message : error);
-        await vscode.window.showErrorMessage(`DeepSeek Harness: ${message}`, 'Open output').then((action) => {
-          if (action === 'Open output') logger.show();
-        });
+    // `dsh.open` follows the `dsh.openIn` setting; `dsh.openBrowser` always
+    // targets the system default browser.
+    vscode.commands.registerCommand('dsh.open', async () => {
+      if (getSettings().openIn === 'browser') {
+        await openInBrowser();
+      } else {
+        await gui.open();
       }
     }),
+    vscode.commands.registerCommand('dsh.openBrowser', openInBrowser),
     vscode.commands.registerCommand('dsh.restartServer', async () => {
       try {
         const url = await manager.restart();

@@ -141,9 +141,11 @@ export async function discoverCommand(
     );
   }
 
-  const onPath = await findOnPath('dsh', win, pathEnv);
+  const onPath = pickPathCandidate(await findOnPath('dsh', win, pathEnv), win);
   if (onPath) {
-    const needsShell = win && /\.(cmd|bat|ps1)$/i.test(onPath);
+    // Anything except a native .exe must run through a shell on Windows
+    // (this includes the extensionless npm shim as a last resort).
+    const needsShell = win && !/\.exe$/i.test(onPath);
     return { kind: 'path', command: onPath, args: [], shell: needsShell };
   }
 
@@ -162,7 +164,7 @@ export async function discoverCommand(
   );
 }
 
-async function findOnPath(name: string, win: boolean, pathEnv: string): Promise<string | undefined> {
+async function findOnPath(name: string, win: boolean, pathEnv: string): Promise<string[]> {
   const command = win ? 'where' : 'which';
   try {
     const result = cp.execFileSync(command, [name], {
@@ -170,11 +172,27 @@ async function findOnPath(name: string, win: boolean, pathEnv: string): Promise<
       windowsHide: true,
       env: { ...process.env, PATH: pathEnv },
     });
-    const first = result.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
-    return first;
+    return result.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   } catch {
-    return undefined;
+    return [];
   }
+}
+
+/**
+ * Pick the runnable candidate among PATH matches.
+ *
+ * On Windows `where dsh` lists the extensionless npm shim (a POSIX sh script
+ * that cmd cannot execute) BEFORE `dsh.cmd`. Prefer a native .exe, then a
+ * .cmd/.bat/.ps1 shim, and only fall back to the first match otherwise.
+ */
+export function pickPathCandidate(matches: string[], win: boolean): string | undefined {
+  if (matches.length === 0) return undefined;
+  if (!win) return matches[0];
+  for (const ext of ['exe', 'cmd', 'bat', 'ps1']) {
+    const hit = matches.find((m) => m.toLowerCase().endsWith(`.${ext}`));
+    if (hit !== undefined) return hit;
+  }
+  return matches[0];
 }
 
 /** Allocate a free loopback port (small race window; retried by callers). */
@@ -320,6 +338,8 @@ export class ServerManager {
     const startedAt = new Date().toISOString();
 
     let stdoutTail = '';
+    let spawnErrorDetail = '';
+    let spawnErrorCode = '';
     child.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8');
       stdoutTail = (stdoutTail + text).slice(-4000);
@@ -332,25 +352,49 @@ export class ServerManager {
       this.options.logger.log(`[dsh stderr] ${chunk.toString('utf8').trimEnd()}`);
     });
     child.once('error', (error) => {
-      this.options.logger.log(`[dsh] spawn error: ${String(error)}`);
+      spawnErrorDetail = String(error);
+      spawnErrorCode = (error as NodeJS.ErrnoException).code ?? '';
+      this.options.logger.log(`[dsh] spawn error: ${spawnErrorDetail}`);
     });
     child.once('exit', (code, signal) => {
       const tail = stdoutTail.trimEnd();
       this.options.logger.log(
         `dsh exited code=${code} signal=${signal}${tail ? ` lastStdout=${JSON.stringify(tail.slice(-500))}` : ''}`,
       );
-      if (this.child === child) this.child = undefined;
-      this.handleChildExit(code, signal);
+      // Guard against a late `exit` after a spawn `error` already settled the
+      // attempt (in that path `this.child` was cleared and no restart wanted).
+      if (this.child === child) {
+        this.child = undefined;
+        this.handleChildExit(code, signal);
+      }
     });
 
-    const healthy = await waitForHealthy(port, START_TIMEOUT_MS, this.options.logger);
+    // Fail fast when the executable itself cannot be spawned (missing binary,
+    // stale shim, ...) instead of waiting out the whole health timeout.
+    const startup = await Promise.race([
+      waitForHealthy(port, START_TIMEOUT_MS, this.options.logger).then(
+        (ok): 'healthy' | 'timeout' => (ok ? 'healthy' : 'timeout'),
+      ),
+      new Promise<'spawn-error'>((resolve) => {
+        child.once('error', () => resolve('spawn-error'));
+      }),
+    ]);
+    if (startup === 'spawn-error') {
+      if (this.child === child) this.child = undefined;
+      this.setState('failed');
+      const staleHint =
+        spawnErrorCode === 'ENOENT'
+          ? ' — the resolved dsh executable is missing or a stale shim (run DSH: Check Installation, or set dsh.binPath to a valid dsh lib/bin.js)'
+          : '';
+      throw new DshError(`could not launch the dsh process: ${spawnErrorDetail}${staleHint}`, 'START_FAILED');
+    }
     if (this.child !== child) {
       // The child died during startup and the auto-restart took over: never
       // kill the replacement — report the state of the current attempt.
       if (this.state === 'ready' && this.instance) return this.getUrl()!;
       throw new DshError('dsh exited during startup and restarted; run the command again', 'START_FAILED');
     }
-    if (!healthy) {
+    if (startup === 'timeout') {
       await this.killChild(child);
       if (!this.disposed) {
         this.options.logger.log(`health probe timed out after ${START_TIMEOUT_MS}ms on port ${port}`);

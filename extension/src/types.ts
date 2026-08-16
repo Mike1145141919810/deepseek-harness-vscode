@@ -19,4 +19,6 @@ export interface DshSettings {
 
 export interface LoggerLike {
   log(message: string): void;
+  /** Reveal the logger's UI (output channel), when it has one. */
+  show?(): void;
 }

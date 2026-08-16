@@ -40,7 +40,7 @@ export class GuiPanel {
       const message = String(error instanceof Error ? error.message : error);
       const action = await vscode.window.showErrorMessage(`DeepSeek Harness: ${message}`, 'Run diagnostics', 'Open output');
       if (action === 'Run diagnostics') await vscode.commands.executeCommand('dsh.checkInstall');
-      if (action === 'Open output') this.logger.show();
+      if (action === 'Open output') this.logger.show?.();
       return;
     }
 

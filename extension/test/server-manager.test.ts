@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DshError, buildWebArgs, discoverCommand, healthProbe, pickFreePort } from '../src/server-manager';
+import { DshError, buildWebArgs, discoverCommand, healthProbe, pickFreePort, pickPathCandidate } from '../src/server-manager';
 import { forbiddenExtraArgs } from '../src/security';
 import { DshSettings } from '../src/types';
 
@@ -31,6 +31,25 @@ describe('forbiddenExtraArgs', () => {
     assert.deepEqual(forbiddenExtraArgs(['--trusted-host', 'lan']), ['--trusted-host']);
     assert.deepEqual(forbiddenExtraArgs(['--patch', 'x.yml']), []);
     assert.deepEqual(forbiddenExtraArgs([]), []);
+  });
+});
+
+describe('pickPathCandidate', () => {
+  it('prefers a runnable Windows shim over the extensionless npm shim', () => {
+    assert.equal(pickPathCandidate(['C:/tmp/bin/dsh', 'C:/tmp/bin/dsh.cmd'], true), 'C:/tmp/bin/dsh.cmd');
+  });
+
+  it('prefers a native .exe on Windows', () => {
+    assert.equal(pickPathCandidate(['C:/x/dsh', 'C:/x/dsh.exe', 'C:/x/dsh.cmd'], true), 'C:/x/dsh.exe');
+  });
+
+  it('falls back to the first match when no runnable extension exists', () => {
+    assert.equal(pickPathCandidate(['C:/x/dsh'], true), 'C:/x/dsh');
+  });
+
+  it('uses the first match on non-Windows and handles empty lists', () => {
+    assert.equal(pickPathCandidate(['/usr/bin/dsh'], false), '/usr/bin/dsh');
+    assert.equal(pickPathCandidate([], false), undefined);
   });
 });
 
@@ -88,6 +107,28 @@ describe('discoverCommand', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shim-'));
     const shim = path.join(dir, 'dsh.cmd');
     fs.writeFileSync(shim, '@echo off\r\n');
+    try {
+      const command = await discoverCommand(
+        { ...baseSettings, binPath: '', allowNpxFallback: false },
+        process.platform,
+        `${dir}${path.delimiter}C:\\Windows\\System32`,
+      );
+      assert.equal(command.kind, 'path');
+      assert.ok(command.command.toLowerCase().endsWith('dsh.cmd'));
+      assert.equal(command.shell, true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers dsh.cmd over the extensionless shim on the injected PATH (win32)', async (t) => {
+    if (process.platform !== 'win32') {
+      t.skip('win32-only shim resolution');
+      return;
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shims-'));
+    fs.writeFileSync(path.join(dir, 'dsh'), '#!/bin/sh\n');
+    fs.writeFileSync(path.join(dir, 'dsh.cmd'), '@echo off\r\n');
     try {
       const command = await discoverCommand(
         { ...baseSettings, binPath: '', allowNpxFallback: false },

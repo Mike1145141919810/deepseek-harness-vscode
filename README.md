@@ -35,7 +35,7 @@ code --install-extension dsh-vscode-0.1.0.vsix
 
 ## 使用
 
-- 命令面板 `DSH: Open DeepSeek Harness`（或点击活动栏机器人图标 → Open DeepSeek Harness，或点击状态栏 `DSH`）。
+- 命令面板 `DSH: Open DeepSeek Harness`（或点击活动栏机器人图标 → Open DeepSeek Harness，或点击状态栏 `DSH`）。当 `dsh.openIn` 为 `"browser"` 时，该命令改用系统默认浏览器打开。
 - 面板内即为 DSH 完整 GUI；隐藏/切走面板时服务继续运行，会话不中断。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
 
@@ -62,7 +62,7 @@ code --install-extension dsh-vscode-0.1.0.vsix
 
 - 服务只绑定 `127.0.0.1`；安全相关参数不允许通过 `extraArgs` 覆盖。
 - Webview 的 CSP 仅允许 `http://127.0.0.1:*` 帧，父文档不执行脚本、不加载远程内容。
-- 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树；异常崩溃场景在下次启动时做 stale 检测。
+- 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树；每次实例的 pid、端口、启动时间与实例 ID 都记录在输出通道，便于排查残留进程。
 
 ## MVP 验收清单（人工）
 

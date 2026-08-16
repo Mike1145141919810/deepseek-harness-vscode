@@ -25,7 +25,7 @@
 
 | 模块 | 职责 |
 |---|---|
-| `src/server-manager.ts` | dsh 定位（binPath → PATH → npx 开关）、端口预分配、spawn、健康探活、状态机、进程树清理、stale 检测 |
+| `src/server-manager.ts` | dsh 定位（binPath → PATH → npx 开关）、端口预分配、spawn、健康探活、状态机、进程树清理、实例记录（PID/端口/启动时间/实例 ID 落输出通道） |
 | `src/stdout-adapter.ts` | stdout 启动行的版本敏感解析（仅诊断） |
 | `src/security.ts` | extraArgs 安全边界校验（纯函数，无 vscode 依赖） |
 | `src/gui-panel.ts` | WebviewPanel + CSP + iframe；服务重启时重渲染 |
@@ -39,3 +39,10 @@ idle → starting → ready → (crash?) → failed → restart(1x) → ready
 ready → stopping → stopped
 dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 ```
+
+## Phase 1 实施记录
+
+- `dsh.open` 现在遵循 `dsh.openIn` 设置：`"panel"` 开面板、`"browser"` 走系统浏览器；`dsh.openBrowser` 始终走浏览器。
+- Windows PATH 发现：`where dsh` 会先列出无扩展名的 npm shim（POSIX sh 脚本，cmd 无法执行）再列出 `dsh.cmd`。发现逻辑优先选 `.exe`，其次 `.cmd`/`.bat`/`.ps1`，避免 spawn ENOENT。
+- spawn 错误（如 ENOENT：可执行文件缺失或 npx 缓存 shim 失效）立即失败并给出可操作提示，不再空等完整健康超时。
+- `npm test` 改用 `test/run-unit-tests.js` 逐文件运行（兼容 Node 18/20/24，目录参数在 Node 24 已不可用），并新增 `tsc --noEmit` 类型检查；`smoke.test.js` 只由 `test:smoke` 运行。
