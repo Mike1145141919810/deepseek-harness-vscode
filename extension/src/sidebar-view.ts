@@ -11,18 +11,23 @@ import { ServerManager } from './server-manager';
 import { LoggerLike } from './types';
 import { newNonce, renderIframeHtml, renderNonceTemplate } from './webview-html';
 
-const VIEW_ID = 'dsh.openView';
+const VIEW_ID = 'dsh.sidebarView';
 
 export class SidebarView implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   /** URL from a start that completed before the view was first resolved. */
   private pendingUrl?: string;
+  private readonly resolutionPromise: Promise<void>;
+  private markResolved!: () => void;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly manager: ServerManager,
     private readonly logger: LoggerLike,
   ) {
+    this.resolutionPromise = new Promise<void>((resolve) => {
+      this.markResolved = resolve;
+    });
     this.manager.onReady((url) => {
       this.pendingUrl = undefined;
       if (this.view) this.renderIframe(url);
@@ -32,6 +37,11 @@ export class SidebarView implements vscode.WebviewViewProvider {
       if (state === 'failed') this.renderReconnect();
       else if (state === 'stopped') this.renderPlaceholder();
     });
+  }
+
+  /** Resolves once VS Code has handed the provider a live webview view. */
+  whenResolved(): Promise<void> {
+    return this.resolutionPromise;
   }
 
   /** Reveal the sidebar and make sure the server runs behind the iframe. */
@@ -53,6 +63,8 @@ export class SidebarView implements vscode.WebviewViewProvider {
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
+    this.logger.log(`sidebar view resolved (visible=${view.visible})`);
+    this.markResolved();
     this.view = view;
     view.webview.options = {
       // Same reason as the panel: enableScripts governs the WHOLE webview

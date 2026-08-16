@@ -29,7 +29,15 @@ interface RpcEnvelope {
   };
 }
 
-/** POST one client-request envelope and return the parsed result part. */
+/**
+ * POST one client-request envelope and return the parsed result part.
+ *
+ * dsh registers its HTTP listener before the apiProxy routes are mounted, so
+ * a call fired immediately after health-ready can get an HTTP 404 for a route
+ * that exists a few hundred ms later (the same boot race seen on the WS
+ * upgrade). Retry transient HTTP/network failures a few times; a well-formed
+ * RPC-level error (result.ok=false) is final and is not retried.
+ */
 async function rpcCall(
   baseUrl: string,
   method: string,
@@ -37,20 +45,36 @@ async function rpcCall(
 ): Promise<{ ok: boolean; detail: string; value?: RpcValue }> {
   const rpcId = crypto.randomUUID();
   const body = { type: 'client-request', rpcId, method, payload };
-  const response = await fetch(`${baseUrl}/api/${method}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) return { ok: false, detail: `HTTP ${response.status}` };
-  const envelope = (await response.json()) as RpcEnvelope;
-  if (envelope.rpcId !== rpcId) return { ok: false, detail: 'rpcId mismatch' };
-  if (!envelope.result?.ok) {
-    const error = envelope.result?.error;
-    return { ok: false, detail: error?.message ?? error?.code ?? 'unknown rpc error' };
+  const retryDelaysMs = [0, 250, 500, 1000];
+  let lastDetail = 'rpc failed';
+
+  for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt]));
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/api/${method}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (error) {
+      lastDetail = String(error);
+      continue;
+    }
+    if (!response.ok) {
+      lastDetail = `HTTP ${response.status}`;
+      continue; // likely the boot race: retry after a short delay
+    }
+    const envelope = (await response.json()) as RpcEnvelope;
+    if (envelope.rpcId !== rpcId) return { ok: false, detail: 'rpcId mismatch' };
+    if (!envelope.result?.ok) {
+      const error = envelope.result?.error;
+      return { ok: false, detail: error?.message ?? error?.code ?? 'unknown rpc error' };
+    }
+    return { ok: true, detail: 'ok', value: envelope.result.value };
   }
-  return { ok: true, detail: 'ok', value: envelope.result.value };
+  return { ok: false, detail: lastDetail };
 }
 
 /**

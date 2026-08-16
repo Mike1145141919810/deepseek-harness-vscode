@@ -7,6 +7,7 @@ const path = require('path');
 
 exports.run = async function run() {
   const mocha = new Mocha({ ui: 'tdd', color: true, timeout: 120000 });
+  if (process.env.SMOKE_GREP) mocha.grep(process.env.SMOKE_GREP);
   mocha.addFile(path.resolve(__dirname, '..', 'dist-test', 'smoke.test.js'));
   return new Promise((resolve, reject) => {
     mocha.run((failures) => {

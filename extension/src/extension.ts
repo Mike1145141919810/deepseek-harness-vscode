@@ -10,6 +10,8 @@ export interface DshExtensionApi {
   manager: ServerManager;
   getServerUrl(): string | undefined;
   getSettings(): DshSettings;
+  /** Resolves once VS Code resolves the sidebar WebviewView. */
+  whenSidebarResolved(): Promise<void>;
 }
 
 export function activate(context: vscode.ExtensionContext): DshExtensionApi {
@@ -70,7 +72,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     vscode.commands.registerCommand('dsh.restartServer', async () => {
       try {
         const url = await manager.restart();
-        await vscode.window.showInformationMessage(`DeepSeek Harness restarted at ${url}`);
+        void vscode.window.showInformationMessage(`DeepSeek Harness restarted at ${url}`);
       } catch (error) {
         const message = String(error instanceof Error ? error.message : error);
         await vscode.window.showErrorMessage(`DeepSeek Harness: ${message}`, 'Open output').then((action) => {
@@ -80,7 +82,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     }),
     vscode.commands.registerCommand('dsh.stopServer', async () => {
       await manager.stop();
-      await vscode.window.showInformationMessage('DeepSeek Harness stopped.');
+      // Fire-and-forget: awaiting an actionless notification would block the
+      // command until the user dismisses it (and hang automated runs).
+      void vscode.window.showInformationMessage('DeepSeek Harness stopped.');
     }),
     vscode.commands.registerCommand('dsh.showUrl', async () => {
       try {
@@ -99,11 +103,12 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     vscode.commands.registerCommand('dsh.checkInstall', async () => {
       await runDiagnostics(manager, logger);
     }),
-    vscode.window.registerWebviewViewProvider('dsh.openView', sidebar, {
+    vscode.window.registerWebviewViewProvider('dsh.sidebarView', sidebar, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     status,
   );
+  logger.log('sidebar WebviewViewProvider registered for dsh.sidebarView');
 
   context.subscriptions.push({
     dispose() {
@@ -122,6 +127,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     manager,
     getServerUrl: () => manager.getUrl(),
     getSettings,
+    whenSidebarResolved: () => sidebar.whenResolved(),
   };
 }
 
