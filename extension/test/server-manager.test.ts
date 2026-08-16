@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DshError, buildWebArgs, discoverCommand, healthProbe, pickFreePort, pickPathCandidate } from '../src/server-manager';
+import { DshError, buildWebArgs, discoverCommand, healthProbe, pickFreePort, pickPathCandidate, resolveShimScript } from '../src/server-manager';
 import { forbiddenExtraArgs } from '../src/security';
 import { DshSettings } from '../src/types';
 
@@ -50,6 +50,47 @@ describe('pickPathCandidate', () => {
   it('uses the first match on non-Windows and handles empty lists', () => {
     assert.equal(pickPathCandidate(['/usr/bin/dsh'], false), '/usr/bin/dsh');
     assert.equal(pickPathCandidate([], false), undefined);
+  });
+});
+
+describe('resolveShimScript', () => {
+  it('resolves the node script behind an npm cmd shim', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cmdshim-'));
+    try {
+      const shim = path.join(dir, 'node_modules', '.bin', 'dsh.cmd');
+      fs.mkdirSync(path.dirname(shim), { recursive: true });
+      fs.writeFileSync(
+        shim,
+        '@ECHO off\r\nIF EXIST "%dp0%\\node.exe" (SET "_prog=%dp0%\\node.exe") ELSE (SET "_prog=node")\r\n"%_prog%"  "%dp0%\\..\\@deepseek-ai\\dsh\\lib\\bin.js" %*\r\n',
+      );
+      const expected = path.resolve(dir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+      assert.equal(resolveShimScript(shim), path.normalize(expected));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves the node script behind an sh shim', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shshim-'));
+    try {
+      const shim = path.join(dir, 'dsh');
+      fs.writeFileSync(shim, '#!/bin/sh\nexec node  "$basedir/../@deepseek-ai/dsh/lib/bin.js" "$@"\n');
+      const expected = path.resolve(dir, '..', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+      assert.equal(resolveShimScript(shim), path.normalize(expected));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns undefined for a shim it does not recognize', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-othershim-'));
+    try {
+      const shim = path.join(dir, 'dsh.cmd');
+      fs.writeFileSync(shim, '@echo off\r\necho hello\r\n');
+      assert.equal(resolveShimScript(shim), undefined);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -114,7 +155,7 @@ describe('discoverCommand', () => {
         `${dir}${path.delimiter}C:\\Windows\\System32`,
       );
       assert.equal(command.kind, 'path');
-      assert.ok(command.command.toLowerCase().endsWith('dsh.cmd'));
+      assert.ok(command.command.replace(/"/g, '').toLowerCase().endsWith('dsh.cmd'));
       assert.equal(command.shell, true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -136,10 +177,43 @@ describe('discoverCommand', () => {
         `${dir}${path.delimiter}C:\\Windows\\System32`,
       );
       assert.equal(command.kind, 'path');
-      assert.ok(command.command.toLowerCase().endsWith('dsh.cmd'));
+      assert.ok(command.command.replace(/"/g, '').toLowerCase().endsWith('dsh.cmd'));
       assert.equal(command.shell, true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the node script behind an npm cmd shim directly (win32)', async (t) => {
+    if (process.platform !== 'win32') {
+      t.skip('win32-only npm cmd shim resolution');
+      return;
+    }
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-npmcmd-'));
+    try {
+      const binDir = path.join(root, 'node_modules', '.bin');
+      const pkgBin = path.join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+      fs.mkdirSync(path.dirname(pkgBin), { recursive: true });
+      fs.writeFileSync(pkgBin, '#!/usr/bin/env node\n');
+      const shim = path.join(binDir, 'dsh.cmd');
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.writeFileSync(shim, '@ECHO off\r\n"%_prog%"  "%dp0%\\..\\@deepseek-ai\\dsh\\lib\\bin.js" %*\r\n');
+      const command = await discoverCommand(
+        { ...baseSettings, binPath: '', allowNpxFallback: false },
+        process.platform,
+        `${binDir}${path.delimiter}C:\\Windows\\System32`,
+      );
+      assert.equal(command.kind, 'node-bin');
+      assert.equal(command.command, process.execPath);
+      // `where` may return the long or 8.3 form of the user profile path;
+      // canonicalize both sides before comparing.
+      assert.equal(
+        fs.realpathSync.native(command.args[0]).toLowerCase(),
+        fs.realpathSync.native(pkgBin).toLowerCase(),
+      );
+      assert.equal(command.shell, false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

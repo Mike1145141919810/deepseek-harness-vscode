@@ -44,5 +44,6 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 
 - `dsh.open` 现在遵循 `dsh.openIn` 设置：`"panel"` 开面板、`"browser"` 走系统浏览器；`dsh.openBrowser` 始终走浏览器。
 - Windows PATH 发现：`where dsh` 会先列出无扩展名的 npm shim（POSIX sh 脚本，cmd 无法执行）再列出 `dsh.cmd`。发现逻辑优先选 `.exe`，其次 `.cmd`/`.bat`/`.ps1`，避免 spawn ENOENT。
+- npm/npx shim 不再经 `shell: true` 启动：解析 `.cmd`/`.bat`/`.ps1`/无扩展名 shim 指向的真实 `bin.js` 后用真实 node 直接执行。绕开两处 Windows 坑——用户目录含空格时命令行被截断（`'C:\Users\Mike' is not recognized`）、cmd 参数不加引号拼接（DEP0190）。
 - spawn 错误（如 ENOENT：可执行文件缺失或 npx 缓存 shim 失效）立即失败并给出可操作提示，不再空等完整健康超时。
 - `npm test` 改用 `test/run-unit-tests.js` 逐文件运行（兼容 Node 18/20/24，目录参数在 Node 24 已不可用），并新增 `tsc --noEmit` 类型检查；`smoke.test.js` 只由 `test:smoke` 运行。

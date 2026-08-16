@@ -143,10 +143,35 @@ export async function discoverCommand(
 
   const onPath = pickPathCandidate(await findOnPath('dsh', win, pathEnv), win);
   if (onPath) {
-    // Anything except a native .exe must run through a shell on Windows
-    // (this includes the extensionless npm shim as a last resort).
+    if (win && !/\.exe$/i.test(onPath)) {
+      // npm/npx shims are trampolines to a node script. Resolve that script
+      // and run it directly with a real node: this sidesteps `shell: true`
+      // entirely (spaces in the user profile path split the command line,
+      // and cmd gets args unquoted/concatenated — see DEP0190).
+      const script = resolveShimScript(onPath);
+      if (script !== undefined) {
+        if (!exists(script)) {
+          throw new DshError(
+            `dsh shim at "${onPath}" points to a missing script (${script}) — likely a stale npx cache; set dsh.binPath to a valid lib/bin.js or reinstall dsh`,
+            'DSH_NOT_FOUND',
+          );
+        }
+        const node = resolveNodeBinary(pathEnv, platform);
+        return {
+          kind: 'node-bin',
+          command: node.command,
+          args: [script],
+          shell: false,
+          electronAsNode: node.electronAsNode,
+        };
+      }
+    }
+    // Anything except a native .exe must run through a shell on Windows.
+    // npm/npx shims were resolved above; a remaining .cmd path is quoted so
+    // spaces in the path don't split the command line for cmd.exe.
     const needsShell = win && !/\.exe$/i.test(onPath);
-    return { kind: 'path', command: onPath, args: [], shell: needsShell };
+    const command = needsShell && /\s/.test(onPath) && !onPath.startsWith('"') ? `"${onPath}"` : onPath;
+    return { kind: 'path', command, args: [], shell: needsShell };
   }
 
   if (settings.allowNpxFallback) {
@@ -193,6 +218,41 @@ export function pickPathCandidate(matches: string[], win: boolean): string | und
     if (hit !== undefined) return hit;
   }
   return matches[0];
+}
+
+/**
+ * Resolve the real node script behind an npm/npx shim.
+ *
+ * Windows npm creates three trampolines: `x.cmd` (`"%dp0%\..\pkg\lib\bin.js"`),
+ * `x.ps1` and the extensionless sh script (`"$basedir/../pkg/lib/bin.js"`).
+ * Returns the absolute script path, or undefined when the file is not a
+ * recognizable npm shim.
+ */
+export function resolveShimScript(shimPath: string): string | undefined {
+  let content: string;
+  try {
+    content = fs.readFileSync(shimPath, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const dir = path.dirname(shimPath);
+  const lower = shimPath.toLowerCase();
+
+  let rel: string | undefined;
+  if (lower.endsWith('.cmd') || lower.endsWith('.bat')) {
+    // npm cmd-shim: "%_prog%"  "%dp0%\..\@scope\pkg\lib\bin.js" %*
+    const candidates = [...content.matchAll(/"%dp0%(\\.+?\.js)"/gi)].map((m) => m[1]);
+    rel = candidates.find((candidate) => candidate.includes('\\..\\'));
+  } else {
+    // sh / ps1 shims: "$basedir/../@scope/pkg/lib/bin.js"
+    const match = /\$basedir\/(\.\.\/[^"\s]+\.js)/.exec(content);
+    if (match) rel = match[1].replace(/\//g, path.sep);
+  }
+
+  if (!rel) return undefined;
+  // `%dp0%` already ends with a separator; strip the leading separator so the
+  // `..` segment resolves relative to the shim directory, not the drive root.
+  return path.resolve(dir, rel.replace(/^[\\/]+/, ''));
 }
 
 /** Allocate a free loopback port (small race window; retried by callers). */
