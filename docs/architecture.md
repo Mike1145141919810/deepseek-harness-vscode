@@ -30,6 +30,8 @@
 | `src/stdout-adapter.ts` | stdout 启动行的版本敏感解析（仅诊断） |
 | `src/security.ts` | extraArgs 安全边界校验（纯函数，无 vscode 依赖） |
 | `src/gui-panel.ts` | WebviewPanel + CSP + iframe；崩溃时重连页、恢复时重渲染 |
+| `src/sidebar-view.ts` | WebviewViewProvider（活动栏侧边栏）：未就绪占位页、崩溃重连页、就绪 iframe |
+| `src/gui-common.ts` | 面板/侧边栏共享：模板读取 + 工作区文件夹预注册 |
 | `src/webview-html.ts` | webview HTML 渲染与 nonce 生成（纯函数，无 vscode 依赖） |
 | `src/settings.ts` | 配置访问（vscode 依赖层） |
 | `src/logger.ts` | 输出通道 |
@@ -44,13 +46,20 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 
 ## Phase 1 实施记录
 
-- `dsh.open` 现在遵循 `dsh.openIn` 设置：`"panel"` 开面板、`"browser"` 走系统浏览器；`dsh.openBrowser` 始终走浏览器。
+- `dsh.open` 现在遵循 `dsh.openIn` 设置：`"panel"` 开面板、`"sidebar"` 开侧边栏、`"browser"` 走系统浏览器；`dsh.openBrowser` 始终走浏览器。
 - Windows PATH 发现：`where dsh` 会先列出无扩展名的 npm shim（POSIX sh 脚本，cmd 无法执行）再列出 `dsh.cmd`。发现逻辑优先选 `.exe`，其次 `.cmd`/`.bat`/`.ps1`，避免 spawn ENOENT。
 - npm/npx shim 不再经 `shell: true` 启动：解析 `.cmd`/`.bat`/`.ps1`/无扩展名 shim 指向的真实 `bin.js` 后用真实 node 直接执行（兼容两种布局：`node_modules/.bin` 的 `%dp0%\..\pkg\lib\bin.js` 与 npm ≥10 全局 prefix 的 `%dp0%\node_modules\pkg\lib\bin.js`）。绕开两处 Windows 坑——用户目录含空格时命令行被截断（`'C:\Users\Mike' is not recognized`）、cmd 参数不加引号拼接（DEP0190），并保证记录的 pid 就是真实 node 进程。
 - spawn 错误（如 ENOENT：可执行文件缺失或 npx 缓存 shim 失效）立即失败并给出可操作提示，不再空等完整健康超时。
 - 实例记录持久化（globalStorage/dsh-server.json）：每次就绪写入、干净停止删除；每次冷启动做 stale 检测——旧 PID 仍存活且端口仍在应答则告警保留，否则清记录并告警。
 - 面板崩溃 UX：`failed` 状态触发重连页（CSP nonce 限定的单按钮脚本，postMessage 重试）；服务恢复时 onReady 自动重渲染 iframe。
 - 关停序列在进程退出后追加端口释放校验（3 次探测），端口仍被应答时只告警、绝不杀掉非本扩展进程；集成测试新增「停止后进程计数回到启动前基线」断言。
+
+## Phase 1.5 实施记录（进行中）
+
+- `sidebar` 形态已落地：`dsh.openIn` 扩展为 `"panel" | "sidebar" | "browser"`；活动栏视图 `dsh.openView` 从 TreeView 换成 **WebviewViewProvider**（`src/sidebar-view.ts`）。
+- 侧边栏状态机：未就绪 → 占位页（Open 按钮，不在 reveal 时自动拉起服务）；`failed` → 重连页（nonce 脚本 + Retry）；`ready` → iframe；`stopped` → 回到占位页。
+- 面板与侧边栏共用：iframe/reconnect/sidebar-empty 模板 + `webview-html.ts` 渲染 + `gui-common.ts` 的工作区预注册。
+- 尚未实现（Phase 1.5 剩余）：跨窗口单实例（globalStorage 锁 + 端口复用）、`dsh.runTask` headless 集成终端。
 - `npm test` 改用 `test/run-unit-tests.js` 逐文件运行（兼容 Node 18/20/24，目录参数在 Node 24 已不可用），并新增 `tsc --noEmit` 类型检查；`smoke.test.js` 只由 `test:smoke` 运行。
 
 ## 开发与测试注意事项

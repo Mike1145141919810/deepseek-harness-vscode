@@ -6,13 +6,11 @@
  * panel switches to a reconnect page (single nonce-gated script for the retry
  * button); when the server comes back the iframe is re-rendered.
  */
-import * as fs from 'node:fs';
 import * as vscode from 'vscode';
+import { readWebviewTemplate, seedWorkspaceFolders } from './gui-common';
 import { ServerManager } from './server-manager';
-import { getSettings } from './settings';
 import { LoggerLike } from './types';
 import { newNonce, renderIframeHtml, renderReconnectHtml } from './webview-html';
-import { seedWorkspaces } from './workspace-seed';
 
 const VIEW_TYPE = 'dsh.gui';
 const TITLE = 'DeepSeek Harness';
@@ -52,7 +50,7 @@ export class GuiPanel {
       return;
     }
 
-    await this.seedWorkspaceFolders(url);
+    await seedWorkspaceFolders(url, this.logger);
 
     if (this.panel) {
       this.panel.reveal(vscode.ViewColumn.One, true);
@@ -78,45 +76,16 @@ export class GuiPanel {
     this.logger.log(`panel opened at ${url}`);
   }
 
-  /**
-   * Register the VS Code workspace folders with DSH before the GUI loads, so
-   * they show up (and the newest one auto-connects) instead of the directory
-   * picker. Best-effort: failures only log, never block the panel.
-   */
-  private async seedWorkspaceFolders(url: string): Promise<void> {
-    if (!getSettings().autoWorkspace) return;
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders === undefined || folders.length === 0) return;
-    const outcomes = await seedWorkspaces(url, folders.map((folder) => folder.uri.fsPath));
-    for (const outcome of outcomes) {
-      this.logger.log(
-        outcome.ok
-          ? `workspace seeded: ${outcome.path}`
-          : `workspace seed failed for ${outcome.path}: ${outcome.detail}`,
-      );
-    }
-  }
-
-  private readTemplate(name: string): string | undefined {
-    const templatePath = vscode.Uri.joinPath(this.context.extensionUri, 'media', name);
-    try {
-      return fs.readFileSync(templatePath.fsPath, 'utf8');
-    } catch {
-      this.logger.log(`could not read webview template at ${templatePath.fsPath}`);
-      return undefined;
-    }
-  }
-
   private render(url: string): void {
     if (!this.panel) return;
-    const template = this.readTemplate('panel.html');
+    const template = readWebviewTemplate(this.context, 'panel.html', this.logger);
     if (template === undefined) return;
     this.panel.webview.html = renderIframeHtml(template, url);
   }
 
   private renderReconnect(): void {
     if (!this.panel) return;
-    const template = this.readTemplate('reconnect.html');
+    const template = readWebviewTemplate(this.context, 'reconnect.html', this.logger);
     if (template === undefined) return;
     this.panel.webview.html = renderReconnectHtml(template, newNonce());
     this.logger.log('panel switched to reconnect page (server failed)');

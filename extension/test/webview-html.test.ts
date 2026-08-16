@@ -1,11 +1,14 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { escapeHtmlAttribute, newNonce, renderIframeHtml, renderReconnectHtml } from '../src/webview-html';
+import { escapeHtmlAttribute, newNonce, renderIframeHtml, renderNonceTemplate, renderReconnectHtml } from '../src/webview-html';
 
 const iframeTemplate = '<iframe src="{{DSH_URL}}"></iframe>';
 const reconnectTemplate =
   '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'nonce-{{NONCE}}\';" />' +
   '<script nonce="{{NONCE}}">const vscode = acquireVsCodeApi();</script>';
+const sidebarEmptyTemplate =
+  '<button id="open">Open</button><script nonce="{{NONCE}}">' +
+  "document.getElementById('open').addEventListener('click', () => vscode.postMessage({ type: 'dsh.open' }));</script>";
 
 describe('webview-html', () => {
   it('renders the iframe URL escaped as an attribute', () => {
@@ -23,6 +26,14 @@ describe('webview-html', () => {
     const rendered = renderReconnectHtml(reconnectTemplate, nonce);
     assert.ok(rendered.includes(`script-src 'nonce-${nonce}'`));
     assert.ok(rendered.includes(`<script nonce="${nonce}">`));
+    assert.ok(!rendered.includes('{{NONCE}}'));
+  });
+
+  it('fills the nonce into any nonce-gated template (sidebar placeholder)', () => {
+    const nonce = newNonce();
+    const rendered = renderNonceTemplate(sidebarEmptyTemplate, nonce);
+    assert.ok(rendered.includes(`<script nonce="${nonce}">`));
+    assert.ok(rendered.includes("vscode.postMessage({ type: 'dsh.open' })"));
     assert.ok(!rendered.includes('{{NONCE}}'));
   });
 

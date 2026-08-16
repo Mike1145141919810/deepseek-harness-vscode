@@ -3,25 +3,13 @@ import { GuiPanel } from './gui-panel';
 import { Logger } from './logger';
 import { ServerManager } from './server-manager';
 import { forbiddenExtraArgs, getSettings } from './settings';
+import { SidebarView } from './sidebar-view';
 import { DshSettings } from './types';
 
 export interface DshExtensionApi {
   manager: ServerManager;
   getServerUrl(): string | undefined;
   getSettings(): DshSettings;
-}
-
-class OpenViewProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
-    return element;
-  }
-
-  getChildren(): vscode.TreeItem[] {
-    const item = new vscode.TreeItem('Open DeepSeek Harness', vscode.TreeItemCollapsibleState.None);
-    item.command = { command: 'dsh.open', title: 'Open' };
-    item.iconPath = new vscode.ThemeIcon('robot');
-    return [item];
-  }
 }
 
 export function activate(context: vscode.ExtensionContext): DshExtensionApi {
@@ -32,6 +20,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     recordDir: context.globalStorageUri.fsPath,
   });
   const gui = new GuiPanel(context, manager, logger);
+  const sidebar = new SidebarView(context, manager, logger);
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(robot) DSH';
@@ -68,8 +57,11 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     // `dsh.open` follows the `dsh.openIn` setting; `dsh.openBrowser` always
     // targets the system default browser.
     vscode.commands.registerCommand('dsh.open', async () => {
-      if (getSettings().openIn === 'browser') {
+      const openIn = getSettings().openIn;
+      if (openIn === 'browser') {
         await openInBrowser();
+      } else if (openIn === 'sidebar') {
+        await sidebar.open();
       } else {
         await gui.open();
       }
@@ -107,7 +99,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     vscode.commands.registerCommand('dsh.checkInstall', async () => {
       await runDiagnostics(manager, logger);
     }),
-    vscode.window.registerTreeDataProvider('dsh.openView', new OpenViewProvider()),
+    vscode.window.registerWebviewViewProvider('dsh.openView', sidebar, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     status,
   );
 

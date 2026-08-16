@@ -83,10 +83,11 @@
           "type": "string",
           "enum": [
             "panel",
+            "sidebar",
             "browser"
           ],
           "default": "panel",
-          "description": "Where to open the DSH GUI. 'browser' uses your system default browser."
+          "description": "Where to open the DSH GUI. 'panel' opens an editor-area panel, 'sidebar' opens the activity-bar view, 'browser' uses your system default browser."
         },
         "dsh.allowNpxFallback": {
           "type": "boolean",
@@ -101,7 +102,7 @@
         "dsh.autoWorkspace": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically register the VS Code workspace folder(s) as DSH workspaces when the panel opens, so the GUI auto-selects them instead of asking for a directory."
+          "description": "Automatically register the VS Code workspace folder(s) as DSH workspaces when a GUI surface opens, so the GUI auto-selects them instead of asking for a directory."
         },
         "dsh.extraArgs": {
           "type": "array",

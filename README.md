@@ -1,6 +1,6 @@
 # DeepSeek Harness for VS Code
 
-把 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Web GUI 嵌入 VS Code 面板运行。
+把 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Web GUI 嵌入 VS Code（编辑器面板 / 侧边栏）运行。
 
 **Desktop VS Code only · Local Extension Host only · Remote / WSL / vscode.dev unsupported**（扩展声明 `extensionKind: ["workspace"]`，需要本地 Node 环境来拉起并管理 `dsh web` 进程）。
 
@@ -35,9 +35,10 @@ code --install-extension dsh-vscode-0.1.0.vsix
 
 ## 使用
 
-- 命令面板 `DSH: Open DeepSeek Harness`（或点击活动栏机器人图标 → Open DeepSeek Harness，或点击状态栏 `DSH`）。当 `dsh.openIn` 为 `"browser"` 时，该命令改用系统默认浏览器打开。
+- 命令面板 `DSH: Open DeepSeek Harness`（或点击状态栏 `DSH`）。打开位置由 `dsh.openIn` 决定：`"panel"` 编辑器区面板、`"sidebar"` 活动栏侧边栏、`"browser"` 系统默认浏览器。
+- 活动栏机器人图标就是 DSH 侧边栏：服务未启动时显示 Open 按钮；已启动则直接嵌入完整 GUI（不自动拉起服务）。
 - 面板内即为 DSH 完整 GUI；隐藏/切走面板时服务继续运行，会话不中断。
-- 服务中途崩溃时自动重启一次，面板切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
+- 服务中途崩溃时自动重启一次，面板/侧边栏切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
 
 ## 设置（`dsh.*`）
@@ -45,10 +46,10 @@ code --install-extension dsh-vscode-0.1.0.vsix
 | 设置 | 默认 | 说明 |
 |---|---|---|
 | `dsh.binPath` | `""` | dsh 的 `lib/bin.js` 或包含它的目录；空 = 自动在 PATH 找 |
-| `dsh.openIn` | `"panel"` | `"panel"`（编辑器区面板）或 `"browser"`（系统浏览器） |
+| `dsh.openIn` | `"panel"` | `"panel"`（编辑器区面板）、`"sidebar"`（活动栏侧边栏）或 `"browser"`（系统浏览器） |
 | `dsh.allowNpxFallback` | `false` | 本地找不到 dsh 时允许用 npx 引导安装（需联网） |
 | `dsh.autoStart` | `false` | VS Code 启动时自动拉起服务 |
-| `dsh.autoWorkspace` | `true` | 打开面板时自动把 VS Code 当前工作区文件夹注册为 DSH 工作区 |
+| `dsh.autoWorkspace` | `true` | 打开 GUI 表面（面板/侧边栏）时自动把 VS Code 当前工作区文件夹注册为 DSH 工作区 |
 | `dsh.extraArgs` | `[]` | 附加 dsh 参数；`--host`/`--port`/`--trusted-host` 会被拒绝 |
 | `dsh.pinnedVersion` | `"0.1.0-rc.6"` | npx 兜底使用的版本 |
 
@@ -76,6 +77,7 @@ code --install-extension dsh-vscode-0.1.0.vsix
 - [x] 删除 PATH 里的 dsh 后报错信息可操作
 - [ ] 服务中途崩溃后面板显示重连页，自动重启后 iframe 自动恢复
 - [ ] 强杀残留 dsh 后下次启动 stale 检测清记录并告警
+- [ ] `dsh.openIn: "sidebar"` 时活动栏侧边栏完整加载 GUI，重连页/Retry 正常
 - [x] VSIX 打包成功（`npm run package`）
 
 ## License

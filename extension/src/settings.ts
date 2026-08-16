@@ -7,7 +7,7 @@ export function getSettings(): DshSettings {
   const cfg = vscode.workspace.getConfiguration('dsh');
   return {
     binPath: cfg.get<string>('binPath', ''),
-    openIn: cfg.get<'panel' | 'browser'>('openIn', 'panel'),
+    openIn: cfg.get<'panel' | 'sidebar' | 'browser'>('openIn', 'panel'),
     allowNpxFallback: cfg.get<boolean>('allowNpxFallback', false),
     autoStart: cfg.get<boolean>('autoStart', false),
     autoWorkspace: cfg.get<boolean>('autoWorkspace', true),

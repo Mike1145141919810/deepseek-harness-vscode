@@ -4,7 +4,7 @@ export interface DshSettings {
   /** Path to dsh's bin.js or a folder containing it. Empty = auto-detect on PATH. */
   binPath: string;
   /** Where the GUI opens. */
-  openIn: 'panel' | 'browser';
+  openIn: 'panel' | 'sidebar' | 'browser';
   /** Whether npx bootstrap is allowed when no local dsh is found. */
   allowNpxFallback: boolean;
   /** Start the server when VS Code starts. */

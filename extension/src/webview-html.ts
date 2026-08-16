@@ -25,8 +25,13 @@ export function renderIframeHtml(template: string, url: string): string {
   return template.replace('{{DSH_URL}}', escapeHtmlAttribute(url));
 }
 
-/** Fill every `{{NONCE}}` (CSP meta + inline script tag) in the reconnect template. */
-export function renderReconnectHtml(template: string, nonce: string): string {
+/** Fill every `{{NONCE}}` placeholder (CSP meta + inline script tag) in a template. */
+export function renderNonceTemplate(template: string, nonce: string): string {
   const safe = escapeHtmlAttribute(nonce);
   return template.split('{{NONCE}}').join(safe);
+}
+
+/** Fill every `{{NONCE}}` (CSP meta + inline script tag) in the reconnect template. */
+export function renderReconnectHtml(template: string, nonce: string): string {
+  return renderNonceTemplate(template, nonce);
 }
