@@ -15,6 +15,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
 import * as path from 'node:path';
+import { clearInstanceRecord, loadInstanceRecord, pidIsAlive, saveInstanceRecord } from './instance-record';
 import { parsePortFromStream } from './stdout-adapter';
 import { forbiddenExtraArgs } from './security';
 import { DshSettings, LoggerLike } from './types';
@@ -313,6 +314,8 @@ async function waitForHealthy(
 export interface ServerManagerOptions {
   settings: () => DshSettings;
   logger: LoggerLike;
+  /** Directory (e.g. globalStorage) for the persisted instance record; disabled when absent. */
+  recordDir?: string;
   onStateChange?: (state: ServerState, instance?: ServerInstance) => void;
 }
 
@@ -369,6 +372,10 @@ export class ServerManager {
         'FORBIDDEN_EXTRA_ARGS',
       );
     }
+
+    // Stale detection before every cold start: warn about a still-running
+    // previous instance, clear records whose PID is dead or port gone.
+    await this.detectStaleRecord();
 
     let command: ResolvedCommand;
     try {
@@ -469,6 +476,7 @@ export class ServerManager {
 
     this.instance = { instanceId, pid: child.pid, port, startedAt };
     this.restartAttempted = false;
+    this.persistRecord(this.instance);
     this.options.logger.log(
       `dsh ready at http://${HOST}:${port} (pid=${child.pid} instance=${instanceId})`,
     );
@@ -490,16 +498,77 @@ export class ServerManager {
     throw new DshError(`could not allocate a free loopback port after ${PORT_RETRIES} attempts`, 'PORT_UNAVAILABLE');
   }
 
+  /**
+   * Stale detection for the record persisted by a previous session: warn when
+   * that instance is still running, otherwise clear the record.
+   */
+  private async detectStaleRecord(): Promise<void> {
+    const dir = this.options.recordDir;
+    if (!dir) return;
+    const record = loadInstanceRecord(dir);
+    if (!record) return;
+    const alive = pidIsAlive(record.pid);
+    const serving = alive && (await healthProbe(record.port, 1000));
+    if (alive && serving) {
+      this.options.logger.log(
+        `[stale] a dsh instance from a previous session is still running (pid=${record.pid} port=${record.port} instance=${record.instanceId}) — leaving it alone`,
+      );
+      return;
+    }
+    clearInstanceRecord(dir);
+    this.options.logger.log(
+      `[stale] cleared stale dsh instance record (pid=${record.pid} port=${record.port}; ${
+        alive ? 'port no longer answering' : 'pid is dead'
+      })`,
+    );
+  }
+
+  private persistRecord(instance: ServerInstance): void {
+    const dir = this.options.recordDir;
+    if (!dir || instance.pid === undefined) return;
+    try {
+      saveInstanceRecord(dir, {
+        v: 1,
+        instanceId: instance.instanceId,
+        pid: instance.pid,
+        port: instance.port,
+        startedAt: instance.startedAt,
+      });
+    } catch (error) {
+      this.options.logger.log(`[record] could not persist instance record: ${String(error)}`);
+    }
+  }
+
+  private removeRecord(): void {
+    const dir = this.options.recordDir;
+    if (!dir) return;
+    clearInstanceRecord(dir);
+  }
+
+  /** After killing the child, confirm the port stopped answering. If another
+   * process grabbed it meanwhile, warn — never kill a process we don't own. */
+  private async verifyPortReleased(port: number): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!(await healthProbe(port, 500))) return;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    this.options.logger.log(
+      `[warn] port ${port} still answers after dsh shutdown — another process may have grabbed it; it was left alone`,
+    );
+  }
+
   private handleChildExit(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.disposed) return;
     if (this.intentionalExit) {
       this.intentionalExit = false;
       this.instance = undefined;
+      this.removeRecord();
       if (this.state !== 'stopping' && this.state !== 'stopped') this.setState('failed');
       return;
     }
     if (this.state === 'stopping' || this.state === 'stopped') {
       this.instance = undefined;
+      this.removeRecord();
       this.setState('stopped');
       return;
     }
@@ -510,6 +579,7 @@ export class ServerManager {
       this.restartAttempted = true;
       this.options.logger.log('dsh exited unexpectedly; restarting once...');
       this.instance = undefined;
+      this.removeRecord();
       this.setState('failed');
       void this.start().catch((error) => {
         this.options.logger.log(`auto-restart failed: ${String(error)}`);
@@ -517,16 +587,23 @@ export class ServerManager {
       return;
     }
     this.instance = undefined;
+    this.removeRecord();
     this.setState('failed');
     this.options.logger.log(`dsh stopped (code=${code} signal=${signal})`);
   }
 
   async stop(): Promise<void> {
-    if (this.state === 'idle' || this.state === 'stopped') return;
+    if (this.state === 'idle' || this.state === 'stopped') {
+      this.removeRecord();
+      return;
+    }
     this.setState('stopping');
     const child = this.child;
+    const instance = this.instance;
     if (child) await this.killChild(child);
+    if (instance) await this.verifyPortReleased(instance.port);
     this.instance = undefined;
+    this.removeRecord();
     this.setState('stopped');
   }
 
@@ -576,7 +653,9 @@ export class ServerManager {
     const child = this.child;
     if (child) {
       this.setState('stopping');
-      void this.killChild(child);
+      void this.killChild(child).finally(() => this.removeRecord());
+    } else {
+      this.removeRecord();
     }
     this.setState('stopped');
   }

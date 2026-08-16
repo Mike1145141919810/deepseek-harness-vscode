@@ -25,10 +25,12 @@
 
 | 模块 | 职责 |
 |---|---|
-| `src/server-manager.ts` | dsh 定位（binPath → PATH → npx 开关）、端口预分配、spawn、健康探活、状态机、进程树清理、实例记录（PID/端口/启动时间/实例 ID 落输出通道） |
+| `src/server-manager.ts` | dsh 定位（binPath → PATH → npx 开关）、端口预分配、spawn、健康探活、状态机、进程树清理、实例记录持久化 + stale 检测、关停后端口校验 |
+| `src/instance-record.ts` | 实例记录（PID/端口/启动时间/实例 ID）读写与 PID 存活检测（纯 Node） |
 | `src/stdout-adapter.ts` | stdout 启动行的版本敏感解析（仅诊断） |
 | `src/security.ts` | extraArgs 安全边界校验（纯函数，无 vscode 依赖） |
-| `src/gui-panel.ts` | WebviewPanel + CSP + iframe；服务重启时重渲染 |
+| `src/gui-panel.ts` | WebviewPanel + CSP + iframe；崩溃时重连页、恢复时重渲染 |
+| `src/webview-html.ts` | webview HTML 渲染与 nonce 生成（纯函数，无 vscode 依赖） |
 | `src/settings.ts` | 配置访问（vscode 依赖层） |
 | `src/logger.ts` | 输出通道 |
 
@@ -46,4 +48,7 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - Windows PATH 发现：`where dsh` 会先列出无扩展名的 npm shim（POSIX sh 脚本，cmd 无法执行）再列出 `dsh.cmd`。发现逻辑优先选 `.exe`，其次 `.cmd`/`.bat`/`.ps1`，避免 spawn ENOENT。
 - npm/npx shim 不再经 `shell: true` 启动：解析 `.cmd`/`.bat`/`.ps1`/无扩展名 shim 指向的真实 `bin.js` 后用真实 node 直接执行。绕开两处 Windows 坑——用户目录含空格时命令行被截断（`'C:\Users\Mike' is not recognized`）、cmd 参数不加引号拼接（DEP0190）。
 - spawn 错误（如 ENOENT：可执行文件缺失或 npx 缓存 shim 失效）立即失败并给出可操作提示，不再空等完整健康超时。
+- 实例记录持久化（globalStorage/dsh-server.json）：每次就绪写入、干净停止删除；每次冷启动做 stale 检测——旧 PID 仍存活且端口仍在应答则告警保留，否则清记录并告警。
+- 面板崩溃 UX：`failed` 状态触发重连页（CSP nonce 限定的单按钮脚本，postMessage 重试）；服务恢复时 onReady 自动重渲染 iframe。
+- 关停序列在进程退出后追加端口释放校验（3 次探测），端口仍被应答时只告警、绝不杀掉非本扩展进程；集成测试新增「停止后进程计数回到启动前基线」断言。
 - `npm test` 改用 `test/run-unit-tests.js` 逐文件运行（兼容 Node 18/20/24，目录参数在 Node 24 已不可用），并新增 `tsc --noEmit` 类型检查；`smoke.test.js` 只由 `test:smoke` 运行。

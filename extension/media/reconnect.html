@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{NONCE}}';"
+    />
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: var(--vscode-editor-background, #1e1e1e);
+        color: var(--vscode-foreground, #cccccc);
+        font-family: var(--vscode-font-family, sans-serif);
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 10px;
+        text-align: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0;
+      }
+      p {
+        margin: 0;
+        max-width: 480px;
+      }
+      .hint {
+        opacity: 0.75;
+        font-size: 12px;
+      }
+      button {
+        background: var(--vscode-button-background, #0e639c);
+        color: var(--vscode-button-foreground, #ffffff);
+        border: none;
+        border-radius: 2px;
+        padding: 7px 16px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--vscode-button-hoverBackground, #1177bb);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DSH connection lost</h1>
+      <p>
+        The DeepSeek Harness server stopped. It restarts automatically once — if this page is
+        still here after a few seconds, retry the connection.
+      </p>
+      <button id="retry">Retry connection</button>
+      <p class="hint">Startup details are logged in the “DeepSeek Harness” output channel.</p>
+    </main>
+    <script nonce="{{NONCE}}">
+      const vscode = acquireVsCodeApi();
+      document.getElementById('retry').addEventListener('click', () => {
+        vscode.postMessage({ type: 'dsh.retry' });
+      });
+    </script>
+  </body>
+</html>

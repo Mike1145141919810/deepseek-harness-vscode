@@ -2,14 +2,16 @@
  * The WebviewPanel that hosts the DSH GUI in an iframe.
  *
  * Parent document: no scripts (no nonce machinery needed) — a CSP that only
- * permits loopback frames plus a full-bleed iframe. When the server dies and
- * comes back, the panel is re-rendered so the iframe reloads.
+ * permits loopback frames plus a full-bleed iframe. When the server dies, the
+ * panel switches to a reconnect page (single nonce-gated script for the retry
+ * button); when the server comes back the iframe is re-rendered.
  */
 import * as fs from 'node:fs';
 import * as vscode from 'vscode';
 import { ServerManager } from './server-manager';
 import { getSettings } from './settings';
 import { LoggerLike } from './types';
+import { newNonce, renderIframeHtml, renderReconnectHtml } from './webview-html';
 import { seedWorkspaces } from './workspace-seed';
 
 const VIEW_TYPE = 'dsh.gui';
@@ -28,6 +30,11 @@ export class GuiPanel {
     this.manager.onReady((url) => {
       if (this.panel) this.render(url);
     });
+    // A crash (or a failed auto-restart) flips an open panel to the reconnect
+    // page; `dsh.stopServer` never triggers this — only `failed` does.
+    this.manager.onStateChange((state) => {
+      if (state === 'failed' && this.panel) this.renderReconnect();
+    });
   }
 
   /** Open (or reveal) the panel with a running server behind it. */
@@ -41,6 +48,7 @@ export class GuiPanel {
       const action = await vscode.window.showErrorMessage(`DeepSeek Harness: ${message}`, 'Run diagnostics', 'Open output');
       if (action === 'Run diagnostics') await vscode.commands.executeCommand('dsh.checkInstall');
       if (action === 'Open output') this.logger.show?.();
+      if (this.panel) this.renderReconnect();
       return;
     }
 
@@ -62,6 +70,9 @@ export class GuiPanel {
     this.panel = panel;
     panel.onDidDispose(() => {
       this.panel = undefined;
+    });
+    panel.webview.onDidReceiveMessage((message: { type?: string }) => {
+      if (message?.type === 'dsh.retry') void this.open();
     });
     this.render(url);
     this.logger.log(`panel opened at ${url}`);
@@ -86,18 +97,28 @@ export class GuiPanel {
     }
   }
 
+  private readTemplate(name: string): string | undefined {
+    const templatePath = vscode.Uri.joinPath(this.context.extensionUri, 'media', name);
+    try {
+      return fs.readFileSync(templatePath.fsPath, 'utf8');
+    } catch {
+      this.logger.log(`could not read webview template at ${templatePath.fsPath}`);
+      return undefined;
+    }
+  }
+
   private render(url: string): void {
     if (!this.panel) return;
-    const templatePath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'panel.html');
-    let html: string;
-    try {
-      html = fs.readFileSync(templatePath.fsPath, 'utf8');
-    } catch {
-      this.logger.log(`could not read panel template at ${templatePath.fsPath}`);
-      return;
-    }
-    // The URL is self-generated (127.0.0.1:port); still escape it into HTML.
-    const safeUrl = url.replace(/"/g, '%22');
-    this.panel.webview.html = html.replace('{{DSH_URL}}', safeUrl);
+    const template = this.readTemplate('panel.html');
+    if (template === undefined) return;
+    this.panel.webview.html = renderIframeHtml(template, url);
+  }
+
+  private renderReconnect(): void {
+    if (!this.panel) return;
+    const template = this.readTemplate('reconnect.html');
+    if (template === undefined) return;
+    this.panel.webview.html = renderReconnectHtml(template, newNonce());
+    this.logger.log('panel switched to reconnect page (server failed)');
   }
 }

@@ -37,6 +37,7 @@ code --install-extension dsh-vscode-0.1.0.vsix
 
 - 命令面板 `DSH: Open DeepSeek Harness`（或点击活动栏机器人图标 → Open DeepSeek Harness，或点击状态栏 `DSH`）。当 `dsh.openIn` 为 `"browser"` 时，该命令改用系统默认浏览器打开。
 - 面板内即为 DSH 完整 GUI；隐藏/切走面板时服务继续运行，会话不中断。
+- 服务中途崩溃时自动重启一次，面板切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
 
 ## 设置（`dsh.*`）
@@ -56,13 +57,13 @@ code --install-extension dsh-vscode-0.1.0.vsix
 - **`dsh was not found`**：运行 `DSH: Check Installation` 查看诊断；把 `dsh.binPath` 指向 dsh 的 `lib/bin.js`，例如 `C:\Users\<你>\AppData\Local\npm-cache\_npx\<hash>\node_modules\@deepseek-ai\dsh\lib\bin.js`。
 - **`dsh server did not become healthy`**：打开输出面板（`DeepSeek Harness` 通道）看子进程日志。
 - **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
-- 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID，方便排查残留进程。
+- 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID；实例记录持久化到 globalStorage，下次启动会做 stale 检测（旧 PID 已死/端口失效则清记录并告警）。
 
 ## 安全
 
 - 服务只绑定 `127.0.0.1`；安全相关参数不允许通过 `extraArgs` 覆盖。
 - Webview 的 CSP 仅允许 `http://127.0.0.1:*` 帧，父文档不执行脚本、不加载远程内容。
-- 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树；每次实例的 pid、端口、启动时间与实例 ID 都记录在输出通道，便于排查残留进程。
+- 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树并校验端口释放；异常崩溃场景在下次启动时做 stale 检测并告警。
 
 ## MVP 验收清单（人工）
 
@@ -73,6 +74,8 @@ code --install-extension dsh-vscode-0.1.0.vsix
 - [x] 面板隐藏/重开后会话仍在
 - [x] `Stop Server` 后进程列表无残留 dsh 进程（重启后亦然）
 - [x] 删除 PATH 里的 dsh 后报错信息可操作
+- [ ] 服务中途崩溃后面板显示重连页，自动重启后 iframe 自动恢复
+- [ ] 强杀残留 dsh 后下次启动 stale 检测清记录并告警
 - [x] VSIX 打包成功（`npm run package`）
 
 ## License

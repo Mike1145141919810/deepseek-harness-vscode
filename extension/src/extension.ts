@@ -26,7 +26,11 @@ class OpenViewProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
 export function activate(context: vscode.ExtensionContext): DshExtensionApi {
   const logger = new Logger('DeepSeek Harness');
-  const manager = new ServerManager({ settings: getSettings, logger });
+  const manager = new ServerManager({
+    settings: getSettings,
+    logger,
+    recordDir: context.globalStorageUri.fsPath,
+  });
   const gui = new GuiPanel(context, manager, logger);
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);

@@ -8,12 +8,14 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ServerManager, discoverCommand } from '../src/server-manager';
+import { loadInstanceRecord, saveInstanceRecord } from '../src/instance-record';
 import { DshSettings } from '../src/types';
 import { seedWorkspace, deleteWorkspace } from '../src/workspace-seed';
 
@@ -51,6 +53,34 @@ function httpStatus(url: string): Promise<number> {
       reject(new Error('httpStatus timeout'));
     });
   });
+}
+
+/**
+ * Count live processes whose command line contains `marker` (the resolved
+ * dsh bin.js). Returns undefined when the platform tooling is unavailable —
+ * the caller then skips the process-count assertion.
+ */
+function countDshProcesses(marker: string): number | undefined {
+  try {
+    if (process.platform === 'win32') {
+      // PowerShell wildcard syntax: backtick escapes wildcards, backslash is
+      // literal; only single quotes need doubling inside a '-like' pattern.
+      const escaped = marker.replace(/'/g, "''");
+      const script = `(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*${escaped}*' }).Count`;
+      const out = cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        encoding: 'utf8',
+        timeout: 20000,
+        windowsHide: true,
+      });
+      const count = Number(out.trim());
+      return Number.isInteger(count) && count >= 0 ? count : undefined;
+    }
+    const out = cp.execFileSync('pgrep', ['-fc', marker], { encoding: 'utf8', timeout: 20000 });
+    const count = Number(out.trim());
+    return Number.isInteger(count) && count >= 0 ? count : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -118,7 +148,7 @@ async function wsProbe(host: string, port: number): Promise<boolean> {
 }
 
 describe('server-manager integration (real dsh web)', { timeout: 120000 }, () => {
-  it('spawns dsh web, serves HTTP, and shuts down cleanly', async (t) => {
+  it('spawns dsh web, serves HTTP, persists the instance record, and shuts down cleanly', async (t) => {
     console.log('checking dsh availability...');
     if (!(await dshAvailable())) {
       t.skip('dsh not discoverable: set DSH_BIN_PATH or add dsh to PATH');
@@ -126,7 +156,21 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
     }
     console.log('dsh available, starting manager...');
 
-    const manager = new ServerManager({ settings: () => settings, logger });
+    const resolved = await discoverCommand(settings);
+    const marker = resolved.kind === 'node-bin' ? resolved.args[0] : undefined;
+    const baseline = marker !== undefined ? countDshProcesses(marker) : undefined;
+
+    const recordDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-record-'));
+    // Pre-seed a dead record: the manager must detect and clear it on start.
+    saveInstanceRecord(recordDir, {
+      v: 1,
+      instanceId: 'stale-instance',
+      pid: 999999999,
+      port: 65000,
+      startedAt: new Date().toISOString(),
+    });
+
+    const manager = new ServerManager({ settings: () => settings, logger, recordDir });
     try {
       let url: string;
       try {
@@ -140,6 +184,16 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
       assert.equal(parsed.hostname, '127.0.0.1');
       const instance = manager.getInstance();
       assert.ok(instance && instance.pid, 'instance should record the child pid');
+
+      console.log('step: stale detection + record persistence');
+      assert.ok(
+        logs.some((line) => line.includes('[stale] cleared stale dsh instance record')),
+        'pre-seeded stale record should be detected and cleared',
+      );
+      const record = loadInstanceRecord(recordDir);
+      assert.equal(record?.instanceId, instance.instanceId, 'record should reflect the new instance');
+      assert.equal(record?.pid, instance.pid);
+      assert.equal(record?.port, Number(parsed.port));
 
       console.log('step: httpStatus');
       assert.equal(await httpStatus(url), 200);
@@ -171,12 +225,28 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
       console.log('step: stop');
       await manager.stop();
       assert.equal(manager.getState(), 'stopped');
+      assert.equal(loadInstanceRecord(recordDir), undefined, 'record should be removed on clean stop');
       console.log('step: expect dead port');
       await assert.rejects(httpStatus(url));
+
+      console.log('step: process count returns to baseline');
+      if (marker !== undefined && baseline !== undefined) {
+        let after = countDshProcesses(marker);
+        const deadline = Date.now() + 10000;
+        while (after !== baseline && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          after = countDshProcesses(marker);
+        }
+        assert.equal(after, baseline, `dsh process count should return to baseline ${baseline} after shutdown`);
+      } else {
+        console.log('process-count tooling unavailable; skipping that assertion');
+      }
+
       console.log('step: done');
     } finally {
       // Never leave a live dsh behind, even when an assertion failed midway.
       manager.dispose();
+      fs.rmSync(recordDir, { recursive: true, force: true });
     }
   });
 });
