@@ -63,8 +63,23 @@ suite('DSH extension smoke', () => {
     await vscode.commands.executeCommand('dsh.stopServer');
   });
 
-  // Sidebar note: view resolution is verified manually (README checklist) and
-  // via the exported `whenSidebarResolved()` probe. The automated test window
-  // does not reliably make activity-bar views visible, so no machine
-  // assertion is kept here.
+  test('sidebar view resolves its WebviewViewProvider when focused', async function () {
+    this.timeout(60000);
+
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, 'extension should be installed in the dev host');
+    const api = (await extension!.activate()) as Api;
+
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes('dsh.sidebarView.focus'), 'dsh.sidebarView.focus command should exist');
+    assert.ok(commands.includes('workbench.view.extension.dsh'), 'dsh container focus command should exist');
+
+    await vscode.commands.executeCommand('workbench.view.extension.dsh');
+    await vscode.commands.executeCommand('dsh.sidebarView.focus');
+    const resolved = await Promise.race([
+      api.whenSidebarResolved().then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20000)),
+    ]);
+    assert.ok(resolved, 'sidebar WebviewView should be resolved after focusing dsh.sidebarView');
+  });
 });

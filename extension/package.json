@@ -66,6 +66,7 @@
     "views": {
       "dsh": [
         {
+          "type": "webview",
           "id": "dsh.sidebarView",
           "name": "DeepSeek Harness"
         }
