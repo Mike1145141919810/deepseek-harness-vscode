@@ -4,6 +4,8 @@
 
 **Desktop VS Code only · Local Extension Host only · Remote / WSL / vscode.dev unsupported**（扩展声明 `extensionKind: ["workspace"]`，需要本地 Node 环境来拉起并管理 `dsh web` 进程）。
 
+> 可运行性验证步骤与结果记录见 [VERIFICATION.md](./VERIFICATION.md)。
+
 ## 工作原理
 
 扩展在你的机器上拉起一个 `dsh web` 服务（强制绑定 `127.0.0.1`，端口由扩展预分配），然后用 Webview 面板内的 iframe 加载它。DSH 前端与后端**零改动**，所有会话、skill、审批、设置页面原样可用。
