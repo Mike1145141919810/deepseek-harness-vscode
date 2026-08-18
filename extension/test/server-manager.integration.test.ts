@@ -257,6 +257,10 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
       return;
     }
 
+    const resolved = await discoverCommand(settings);
+    const marker = resolved.kind === 'node-bin' ? resolved.args[0] : undefined;
+    const baseline = marker !== undefined ? countDshProcesses(marker) : undefined;
+
     const recordDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shared-'));
     const managerA = new ServerManager({ settings: () => settings, logger, recordDir });
     const managerB = new ServerManager({ settings: () => settings, logger, recordDir });
@@ -265,6 +269,7 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
       const urlA = await managerA.ensureUrl();
       const portA = new URL(urlA).port;
       const pidA = managerA.getInstance()!.pid;
+      const countAfterA = marker !== undefined ? countDshProcesses(marker) : undefined;
 
       console.log('step: B adopts the same instance');
       const urlB = await managerB.ensureUrl();
@@ -275,17 +280,40 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
         logs.some((line) => line.includes('reusing existing dsh instance')),
         'adoption should be logged',
       );
+      if (marker !== undefined && countAfterA !== undefined) {
+        assert.equal(
+          countDshProcesses(marker),
+          countAfterA,
+          'second window must not add a dsh process',
+        );
+      }
 
       console.log('step: B stops -> detach only, A stays healthy, record remains');
       await managerB.stop();
       assert.equal(managerB.getState(), 'stopped');
       assert.equal(await httpStatus(urlA), 200, 'owner instance should survive B.stop');
       assert.ok(loadInstanceRecord(recordDir), 'record should remain (owned by A)');
+      if (marker !== undefined && countAfterA !== undefined) {
+        assert.equal(
+          countDshProcesses(marker),
+          countAfterA,
+          'detach must not kill the owner process',
+        );
+      }
 
       console.log('step: A stops -> record cleared and port dead');
       await managerA.stop();
       assert.equal(loadInstanceRecord(recordDir), undefined, 'record should be removed by the owner');
       await assert.rejects(httpStatus(urlA));
+      if (marker !== undefined && baseline !== undefined) {
+        let after = countDshProcesses(marker);
+        const deadline = Date.now() + 10000;
+        while (after !== baseline && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          after = countDshProcesses(marker);
+        }
+        assert.equal(after, baseline, 'process count should return to baseline after owner stop');
+      }
       console.log('step: done');
     } finally {
       managerB.dispose();
