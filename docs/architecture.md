@@ -59,7 +59,9 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - `sidebar` 形态已落地：`dsh.openIn` 扩展为 `"panel" | "sidebar" | "browser"`；活动栏视图 id 为 `dsh.sidebarView`（WebviewViewProvider，`src/sidebar-view.ts`）。**关键：`contributes.views` 里的视图必须声明 `"type": "webview"`**，否则 VS Code 按树视图处理、`registerWebviewViewProvider` 不会解析（表现为「没有可提供视图数据的已注册数据提供程序」）；曾复用旧树视图 id `dsh.openView` 加深了混淆，故同时换了新 id。
 - 侧边栏状态机：未就绪 → 占位页（Open 按钮，不在 reveal 时自动拉起服务）；`failed` → 重连页（nonce 脚本 + Retry）；`ready` → iframe；`stopped` → 回到占位页。
 - 面板与侧边栏共用：iframe/reconnect/sidebar-empty 模板 + `webview-html.ts` 渲染 + `gui-common.ts` 的工作区预注册。
-- 尚未实现（Phase 1.5 剩余）：跨窗口单实例（globalStorage 锁 + 端口复用）、`dsh.runTask` headless 集成终端。
+- 跨窗口单实例：`ServerManager` 启动时先读 globalStorage 实例记录，若 PID 存活且端口应答则直接采用（`ownsServer=false`，不杀进程、不删记录）；启动竞态时后到者杀掉自己的重复进程并采用先到者；附加窗口 `Stop Server`/dispose 只 detach；`Restart Server` 在附加窗口会按 PID 树杀共享实例后由本窗口重建（其他窗口通过记录竞态收敛）。
+- `dsh.runTask`（headless）：命令 `DSH: Run Task (headless)` 输入任务文本，`src/headless.ts` 构建 `dsh --profile headless "<task>"` 集成终端调用——node-bin 走 argv 数组（无 shell 引号问题），path/npx 走 cmd/sh。
+- 尚未实现（Phase 1.5 剩余）：无（sidebar、单实例、runTask 均已落地）。后续可做跨窗口 IPC 精化、终端结果收集。
 - 已知环境坑：`window.showInformationMessage`（无按钮）在自动化测试里会挂起命令返回，扩展内已改为 fire-and-forget；`dsh.stopServer`/`dsh.restartServer` 均不再 await 无操作通知。
 - `npm test` 改用 `test/run-unit-tests.js` 逐文件运行（兼容 Node 18/20/24，目录参数在 Node 24 已不可用），并新增 `tsc --noEmit` 类型检查；`smoke.test.js` 只由 `test:smoke` 运行。
 

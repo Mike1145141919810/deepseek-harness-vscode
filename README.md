@@ -40,6 +40,8 @@ code --install-extension dsh-vscode-0.1.0.vsix
 - 命令面板 `DSH: Open DeepSeek Harness`（或点击状态栏 `DSH`）。打开位置由 `dsh.openIn` 决定：`"panel"` 编辑器区面板、`"sidebar"` 活动栏侧边栏、`"browser"` 系统默认浏览器。
 - 活动栏机器人图标就是 DSH 侧边栏：服务未启动时显示 Open 按钮；已启动则直接嵌入完整 GUI（不自动拉起服务）。
 - 面板内即为 DSH 完整 GUI；隐藏/切走面板时服务继续运行，会话不中断。
+- 多窗口共享同一实例：第二个窗口打开 DSH 时自动复用已运行的服务（不重复拉起）；在附加窗口执行 `Stop Server` 只是断开连接，不会杀掉其他窗口的服务。
+- `DSH: Run Task (headless)`：在集成终端里跑一次 `dsh --profile headless "<task>"`，适合不需要 GUI 会话的一次性任务。
 - 服务中途崩溃时自动重启一次，面板/侧边栏切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
 
@@ -80,6 +82,8 @@ code --install-extension dsh-vscode-0.1.0.vsix
 - [ ] 服务中途崩溃后面板显示重连页，自动重启后 iframe 自动恢复
 - [ ] 强杀残留 dsh 后下次启动 stale 检测清记录并告警
 - [ ] `dsh.openIn: "sidebar"` 时活动栏侧边栏完整加载 GUI，重连页/Retry 正常
+- [ ] 多窗口打开 DSH 复用同一实例（第二个窗口不新增 dsh 进程）
+- [ ] `DSH: Run Task (headless)` 在集成终端执行一次性任务
 - [x] VSIX 打包成功（`npm run package`）
 
 ## License

@@ -330,6 +330,8 @@ export class ServerManager {
   private restartAttempted = false;
   /** True while WE kill the child (timeout/stop/dispose): suppress auto-restart. */
   private intentionalExit = false;
+  /** True when the current instance was spawned by THIS manager (not adopted). */
+  private ownsServer = false;
   private readinessListeners: Array<(url: string) => void> = [];
   private stateListeners: Array<(state: ServerState, instance?: ServerInstance) => void> = [];
 
@@ -378,6 +380,10 @@ export class ServerManager {
     // Stale detection before every cold start: warn about a still-running
     // previous instance, clear records whose PID is dead or port gone.
     await this.detectStaleRecord();
+
+    // Cross-window singleton: if another window already runs a live dsh,
+    // adopt it instead of spawning a second server.
+    if (await this.adoptLiveInstance()) return this.getUrl()!;
 
     let command: ResolvedCommand;
     try {
@@ -476,7 +482,19 @@ export class ServerManager {
       throw new DshError('server manager disposed during startup', 'START_FAILED');
     }
 
+    // A concurrent window may have published a live record while we were
+    // starting. Prefer the shared instance and drop our duplicate process.
+    if (await this.adoptLiveInstance()) {
+      this.options.logger.log('another window won the start race; stopping our duplicate');
+      if (this.child === child) this.child = undefined; // suppress exit-handler cleanup
+      await this.killChild(child);
+      this.intentionalExit = false;
+      await this.adoptLiveInstance();
+      return this.getUrl()!;
+    }
+
     this.instance = { instanceId, pid: child.pid, port, startedAt };
+    this.ownsServer = true;
     this.restartAttempted = false;
     this.persistRecord(this.instance);
     this.options.logger.log(
@@ -523,6 +541,33 @@ export class ServerManager {
         alive ? 'port no longer answering' : 'pid is dead'
       })`,
     );
+  }
+
+  /**
+   * Cross-window singleton: if the persisted record points at a live server
+   * (same machine, port answering), adopt it as the current instance instead
+   * of spawning a new one. Adoption windows never kill or remove the record.
+   */
+  private async adoptLiveInstance(): Promise<boolean> {
+    const dir = this.options.recordDir;
+    if (!dir) return false;
+    const record = loadInstanceRecord(dir);
+    if (!record) return false;
+    if (!pidIsAlive(record.pid)) return false;
+    if (!(await healthProbe(record.port, 1000))) return false;
+    this.instance = {
+      instanceId: record.instanceId,
+      pid: record.pid,
+      port: record.port,
+      startedAt: record.startedAt,
+    };
+    this.ownsServer = false;
+    this.restartAttempted = false;
+    this.setState('ready', this.instance);
+    this.options.logger.log(
+      `reusing existing dsh instance from another window (pid=${record.pid} port=${record.port} instance=${record.instanceId})`,
+    );
+    return true;
   }
 
   private persistRecord(instance: ServerInstance): void {
@@ -596,12 +641,19 @@ export class ServerManager {
 
   async stop(): Promise<void> {
     if (this.state === 'idle' || this.state === 'stopped') {
-      this.removeRecord();
+      if (this.ownsServer) this.removeRecord();
       return;
     }
     this.setState('stopping');
     const child = this.child;
     const instance = this.instance;
+    if (!this.ownsServer) {
+      // Shared server is owned by another window: only detach.
+      this.instance = undefined;
+      this.setState('stopped');
+      this.options.logger.log(`detached from shared dsh instance (port=${instance?.port})`);
+      return;
+    }
     if (child) await this.killChild(child);
     if (instance) await this.verifyPortReleased(instance.port);
     this.instance = undefined;
@@ -610,9 +662,47 @@ export class ServerManager {
   }
 
   async restart(): Promise<string> {
+    const sharedPid = this.instance?.pid;
+    const owned = this.ownsServer;
     await this.stop();
+    if (!owned && sharedPid !== undefined) {
+      // Restarting a server owned by another window: kill it by PID and clear
+      // the record so this window spawns a fresh one. Any other window's
+      // auto-restart converges through the same record-adoption logic.
+      this.options.logger.log(`restarting shared dsh instance (pid=${sharedPid})`);
+      await this.killPid(sharedPid);
+      this.removeRecord();
+      this.ownsServer = true;
+    }
     this.restartAttempted = false;
     return this.start();
+  }
+
+  /** Tree-kill a process by PID (used when restarting a shared instance). */
+  private async killPid(pid: number): Promise<void> {
+    if (!pid) return;
+    if (process.platform === 'win32') {
+      try {
+        cp.spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
+          windowsHide: true,
+          stdio: 'ignore',
+        });
+      } catch {
+        // best effort
+      }
+      return;
+    }
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // best effort
+    }
+    await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS));
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // best effort
+    }
   }
 
   private async killChild(child: cp.ChildProcess): Promise<void> {
@@ -653,12 +743,13 @@ export class ServerManager {
   dispose(): void {
     this.disposed = true;
     const child = this.child;
-    if (child) {
+    if (child && this.ownsServer) {
       this.setState('stopping');
       void this.killChild(child).finally(() => this.removeRecord());
-    } else {
+    } else if (this.ownsServer) {
       this.removeRecord();
     }
+    // Adopted shared instances are left alone on dispose.
     this.setState('stopped');
   }
 }

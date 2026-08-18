@@ -249,4 +249,48 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
       fs.rmSync(recordDir, { recursive: true, force: true });
     }
   });
+
+  it('adopts a live instance from another window and detaches without killing it', async (t) => {
+    console.log('checking dsh availability for adoption test...');
+    if (!(await dshAvailable())) {
+      t.skip('dsh not discoverable: set DSH_BIN_PATH or add dsh to PATH');
+      return;
+    }
+
+    const recordDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-shared-'));
+    const managerA = new ServerManager({ settings: () => settings, logger, recordDir });
+    const managerB = new ServerManager({ settings: () => settings, logger, recordDir });
+    try {
+      console.log('step: A starts and owns the server');
+      const urlA = await managerA.ensureUrl();
+      const portA = new URL(urlA).port;
+      const pidA = managerA.getInstance()!.pid;
+
+      console.log('step: B adopts the same instance');
+      const urlB = await managerB.ensureUrl();
+      assert.equal(new URL(urlB).port, portA, 'second window should reuse the same port');
+      assert.equal(managerB.getInstance()?.pid, pidA, 'second window should adopt the same pid');
+      assert.equal(managerB.getState(), 'ready');
+      assert.ok(
+        logs.some((line) => line.includes('reusing existing dsh instance')),
+        'adoption should be logged',
+      );
+
+      console.log('step: B stops -> detach only, A stays healthy, record remains');
+      await managerB.stop();
+      assert.equal(managerB.getState(), 'stopped');
+      assert.equal(await httpStatus(urlA), 200, 'owner instance should survive B.stop');
+      assert.ok(loadInstanceRecord(recordDir), 'record should remain (owned by A)');
+
+      console.log('step: A stops -> record cleared and port dead');
+      await managerA.stop();
+      assert.equal(loadInstanceRecord(recordDir), undefined, 'record should be removed by the owner');
+      await assert.rejects(httpStatus(urlA));
+      console.log('step: done');
+    } finally {
+      managerB.dispose();
+      managerA.dispose();
+      fs.rmSync(recordDir, { recursive: true, force: true });
+    }
+  });
 });

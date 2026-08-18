@@ -52,6 +52,11 @@
         "command": "dsh.checkInstall",
         "title": "Check Installation",
         "category": "DSH"
+      },
+      {
+        "command": "dsh.runTask",
+        "title": "Run Task (headless)",
+        "category": "DSH"
       }
     ],
     "viewsContainers": {

@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { GuiPanel } from './gui-panel';
+import { buildHeadlessInvocation } from './headless';
 import { Logger } from './logger';
-import { ServerManager } from './server-manager';
+import { ServerManager, discoverCommand } from './server-manager';
 import { forbiddenExtraArgs, getSettings } from './settings';
 import { SidebarView } from './sidebar-view';
 import { DshSettings } from './types';
@@ -102,6 +103,31 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     }),
     vscode.commands.registerCommand('dsh.checkInstall', async () => {
       await runDiagnostics(manager, logger);
+    }),
+    vscode.commands.registerCommand('dsh.runTask', async () => {
+      const task = await vscode.window.showInputBox({
+        prompt: 'Task for the DSH headless runner',
+        placeHolder: 'e.g. Summarize this repository',
+        ignoreFocusOut: true,
+      });
+      if (task === undefined || task.trim() === '') return;
+      try {
+        const settings = getSettings();
+        const resolved = await discoverCommand(settings);
+        const invocation = buildHeadlessInvocation(resolved, settings, task.trim());
+        const terminal = vscode.window.createTerminal({
+          name: 'DSH Task',
+          shellPath: invocation.shellPath,
+          shellArgs: invocation.shellArgs,
+        });
+        terminal.show();
+        logger.log(`headless task started: ${task.trim()}`);
+      } catch (error) {
+        const message = String(error instanceof Error ? error.message : error);
+        await vscode.window.showErrorMessage(`DeepSeek Harness: ${message}`, 'Open output').then((action) => {
+          if (action === 'Open output') logger.show();
+        });
+      }
     }),
     vscode.window.registerWebviewViewProvider('dsh.sidebarView', sidebar, {
       webviewOptions: { retainContextWhenHidden: true },
