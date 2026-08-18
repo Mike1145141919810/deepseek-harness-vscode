@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { openInEditorFromMessage } from './editor-bridge-vscode';
 import { GuiPanel } from './gui-panel';
 import { buildHeadlessInvocation } from './headless';
 import { Logger } from './logger';
@@ -129,6 +130,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         });
       }
     }),
+    // Programmatic entry point used by the Phase 2A webview bridge and by
+    // automated acceptance. Not contributed to the Command Palette.
+    vscode.commands.registerCommand('dsh.openInEditor', (message: unknown) => openInEditorFromMessage(message)),
     vscode.window.registerWebviewViewProvider('dsh.sidebarView', sidebar, {
       webviewOptions: { retainContextWhenHidden: true },
     }),

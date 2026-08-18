@@ -1,9 +1,10 @@
 /**
  * Pure webview HTML rendering helpers (no `vscode` import).
  *
- * Security posture: the iframe parent document runs NO scripts. The reconnect
- * page is the one exception — it needs a button, so it carries a single inline
- * script gated by a per-render CSP nonce.
+ * Security posture: the iframe parent document runs exactly one nonce-gated
+ * script — the Phase 2A bridge that forwards `dsh:openInEditor` messages from
+ * the loopback iframe to the extension host. Reconnect and sidebar-empty pages
+ * also carry a single nonce-gated script for their buttons.
  */
 import * as crypto from 'node:crypto';
 
@@ -20,9 +21,14 @@ export function newNonce(): string {
   return crypto.randomBytes(16).toString('base64');
 }
 
-/** Fill `{{DSH_URL}}` in the iframe template with a safely escaped URL. */
-export function renderIframeHtml(template: string, url: string): string {
-  return template.replace('{{DSH_URL}}', escapeHtmlAttribute(url));
+/**
+ * Fill the iframe template: `{{DSH_URL}}` with a safely escaped URL and
+ * `{{NONCE}}` with a per-render CSP nonce (the panel's bridge script is the
+ * only script in the parent document).
+ */
+export function renderIframeHtml(template: string, url: string, nonce: string): string {
+  const withUrl = template.replace('{{DSH_URL}}', escapeHtmlAttribute(url));
+  return withUrl.split('{{NONCE}}').join(escapeHtmlAttribute(nonce));
 }
 
 /** Fill every `{{NONCE}}` placeholder (CSP meta + inline script tag) in a template. */

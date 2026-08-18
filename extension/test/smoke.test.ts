@@ -6,7 +6,10 @@
  * sidebar form; visual content stays on the manual checklist).
  */
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
 import * as http from 'node:http';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 const EXTENSION_ID = 'michael-lee.dsh-vscode';
@@ -61,6 +64,40 @@ suite('DSH extension smoke', () => {
     assert.strictEqual(status, 200, 'dsh web should answer HTTP 200 on the loopback port');
 
     await vscode.commands.executeCommand('dsh.stopServer');
+  });
+
+  test('dsh.openInEditor opens a file at the requested line', async function () {
+    this.timeout(60000);
+
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, 'extension should be installed in the dev host');
+    await extension!.activate();
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-smoke-'));
+    const file = path.join(dir, 'sample.txt');
+    fs.writeFileSync(file, 'line one\nline two\nline three\n');
+    try {
+      await vscode.commands.executeCommand('dsh.openInEditor', {
+        type: 'dsh.openInEditor',
+        file,
+        line: 2,
+        character: 5,
+      });
+      const editor = vscode.window.activeTextEditor;
+      assert.ok(editor, 'active editor should be set after dsh.openInEditor');
+      // VS Code may normalize the Windows drive letter to lowercase; compare
+      // case-insensitively.
+      assert.equal(editor!.document.uri.fsPath.toLowerCase(), file.toLowerCase());
+      assert.equal(editor!.selection.active.line, 1);
+      assert.equal(editor!.selection.active.character, 4);
+    } finally {
+      // Best effort: close the editor. The temp directory is left for the OS
+      // to reap — Windows can hold the file handle briefly after close, and a
+      // failing rmSync would mask the actual openInEditor assertions.
+      if (vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() === file.toLowerCase()) {
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      }
+    }
   });
 
   test('sidebar view resolves its WebviewViewProvider when focused', async function () {

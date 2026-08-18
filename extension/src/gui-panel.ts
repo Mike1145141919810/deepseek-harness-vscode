@@ -1,12 +1,14 @@
 /**
  * The WebviewPanel that hosts the DSH GUI in an iframe.
  *
- * Parent document: no scripts (no nonce machinery needed) — a CSP that only
- * permits loopback frames plus a full-bleed iframe. When the server dies, the
- * panel switches to a reconnect page (single nonce-gated script for the retry
- * button); when the server comes back the iframe is re-rendered.
+ * Parent document: a single nonce-gated script bridges `dsh:openInEditor`
+ * messages from the loopback iframe to the extension host, plus a CSP that
+ * only permits loopback frames. When the server dies, the panel switches to a
+ * reconnect page (single nonce-gated script for the retry button); when the
+ * server comes back the iframe is re-rendered.
  */
 import * as vscode from 'vscode';
+import { openInEditorFromMessage } from './editor-bridge-vscode';
 import { readWebviewTemplate, seedWorkspaceFolders } from './gui-common';
 import { ServerManager } from './server-manager';
 import { LoggerLike } from './types';
@@ -71,6 +73,19 @@ export class GuiPanel {
     });
     panel.webview.onDidReceiveMessage((message: { type?: string }) => {
       if (message?.type === 'dsh.retry') void this.open();
+      if (message?.type === 'dsh.openInEditor') {
+        const file = (message as { file?: unknown }).file;
+        this.logger.log(`open in editor requested${typeof file === 'string' ? `: ${file}` : ''}`);
+        void openInEditorFromMessage(message)
+          .then(() => {
+            if (typeof file === 'string') this.logger.log(`opened in editor: ${file}`);
+          })
+          .catch((error) => {
+            const detail = String(error instanceof Error ? error.message : error);
+            this.logger.log(`open in editor failed: ${detail}`);
+            void vscode.window.showWarningMessage(`DeepSeek Harness: ${detail}`);
+          });
+      }
     });
     this.render(url);
     this.logger.log(`panel opened at ${url}`);
@@ -80,7 +95,7 @@ export class GuiPanel {
     if (!this.panel) return;
     const template = readWebviewTemplate(this.context, 'panel.html', this.logger);
     if (template === undefined) return;
-    this.panel.webview.html = renderIframeHtml(template, url);
+    this.panel.webview.html = renderIframeHtml(template, url, newNonce());
   }
 
   private renderReconnect(): void {

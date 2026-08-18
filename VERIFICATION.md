@@ -27,7 +27,7 @@ npm test
   - `[stale] cleared stale dsh instance record ...`
   - `dsh ready at http://127.0.0.1:<port> (pid=... instance=...)`
   - `step: process count returns to baseline`
-- 结尾：`All 6 test file(s) passed.`（33 个测试全绿）
+- 结尾：`All 8 test file(s) passed.`（42 个测试全绿）
 
 ### 1.2 真实 VS Code 冒烟测试
 
@@ -36,9 +36,12 @@ cd D:\michael_codes\dsh-vscode\extension
 npm run test:smoke
 ```
 
-**通过标准**：`2 passing`，包含：
+**通过标准**：`3 passing`，包含：
 1. 激活 → `dsh.open`（panel）→ 服务 HTTP 200 → `dsh.stopServer`
-2. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
+2. `dsh.openInEditor` 打开临时文件并定位到指定行/列（Phase 2A 扩展侧验收）
+3. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
+
+> 本机运行 smoke 前需要清掉 `ELECTRON_RUN_AS_NODE`（当前会话被扩展宿主置为 `1`，会让 Code.exe 拒绝 VS Code CLI 参数）：`$env:ELECTRON_RUN_AS_NODE=$null; npm run test:smoke`。
 
 ---
 
@@ -113,6 +116,15 @@ sidebar view resolved (visible=true)
 
 **已知根因**：`contributes.views` 中必须声明 `"type": "webview"`，否则 VS Code 按树视图处理，`registerWebviewViewProvider` 不会触发 `resolveWebviewView`。
 
+### G. Phase 2A：Open in VS Code（需先安装 bridge 插件）
+
+1. 安装：`cd D:\michael_codes\dsh-vscode; dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Path -replace '\\','/')"`（需要 pnpm）；再把 `- insert: [{ id: dsh-vscode-bridge, name: 'dsh-vscode-bridge' }]` 写入 `~/.dsh/profiles/web/cordis.patch.yml`。
+2. `DSH: Restart Server`，打开面板/侧边栏。
+3. 让 agent 创建/修改文件，在产物文件行点击 **Open in VS Code**。
+4. 观察：文件在 VS Code 编辑器打开；若消息带行号，光标定位到该行。
+
+**通过标准**：输出通道无 `open in editor failed`；文件出现在编辑器且选中对应位置。
+
 ---
 
 ## 3. 安装态验证（VSIX）
@@ -139,6 +151,7 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 | D Retry 按钮 | ✅ | 2026-08-16 | — |
 | E stale 检测 | ✅ | 2026-08-16 | — |
 | F 侧边栏解析 | ✅ | 2026-08-16 | `type: webview` 修复后 |
+| G Phase 2A Open in VS Code | ✅ | 2026-08-18 | 已安装 bridge 插件；`__DSH_BOOT__`/`/plugins/.../client.js` 验证通过；VS Code smoke 3 passing。真实 GUI 点击仍建议肉眼复核 |
 | VSIX 打包 + 安装 | ✅ | 2026-08-16 | `dsh-vscode-0.1.1.vsix` |
 
 ---
@@ -148,4 +161,5 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 - **「没有可提供视图数据的已注册数据提供程序」**：检查 `extension/package.json` 的 `contributes.views` 中 `dsh.sidebarView` 是否有 `"type": "webview"`，并确认输出通道有 `sidebar WebviewViewProvider registered`。
 - **`workspace seed failed ... HTTP 404`**：dsh API 路由晚于 HTTP 监听就绪，扩展已内置重试（250ms→500ms→1s），一般会自动恢复；持续 404 则检查 dsh 版本是否异常。
 - **输出通道没有 `dsh ready`**：先 `DSH: Check Installation` 看诊断链；确认 `dsh` 在 PATH 或 `dsh.binPath` 有效。
+- **点了 Open in VS Code 没反应**：先确认安装的是含 Phase 2A 的新 VSIX，并 `Developer: Reload Window`；再看输出通道有没有 `open in editor requested` / `opened in editor` / `open in editor failed`。
 - **测试时命令挂住**：`showInformationMessage` 无按钮时不要 `await`（扩展内已 fire-and-forget）；自动化环境里活动栏视图可能无法真实可见，侧边栏以人工 F5 为准。

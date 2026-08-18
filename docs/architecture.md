@@ -34,7 +34,10 @@
 | `src/gui-common.ts` | 面板/侧边栏共享：模板读取 + 工作区文件夹预注册 |
 | `src/webview-html.ts` | webview HTML 渲染与 nonce 生成（纯函数，无 vscode 依赖） |
 | `src/settings.ts` | 配置访问（vscode 依赖层） |
+| `src/editor-bridge.ts` | 纯解析 `dsh.openInEditor` 消息（绝对路径/行列校验，无 vscode 依赖） |
+| `src/editor-bridge-vscode.ts` | 打开文件/定位光标（vscode 依赖层） |
 | `src/logger.ts` | 输出通道 |
+| `packages/dsh-vscode-bridge` | DSH web profile 客户端插件：产物行 “Open in VS Code” 按钮 + postMessage |
 
 ## 进程生命周期
 
@@ -54,7 +57,7 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - 面板崩溃 UX：`failed` 状态触发重连页（CSP nonce 限定的单按钮脚本，postMessage 重试）；服务恢复时 onReady 自动重渲染 iframe。
 - 关停序列在进程退出后追加端口释放校验（3 次探测），端口仍被应答时只告警、绝不杀掉非本扩展进程；集成测试新增「停止后进程计数回到启动前基线」断言。
 
-## Phase 1.5 实施记录（进行中）
+## Phase 1.5 实施记录
 
 - `sidebar` 形态已落地：`dsh.openIn` 扩展为 `"panel" | "sidebar" | "browser"`；活动栏视图 id 为 `dsh.sidebarView`（WebviewViewProvider，`src/sidebar-view.ts`）。**关键：`contributes.views` 里的视图必须声明 `"type": "webview"`**，否则 VS Code 按树视图处理、`registerWebviewViewProvider` 不会解析（表现为「没有可提供视图数据的已注册数据提供程序」）；曾复用旧树视图 id `dsh.openView` 加深了混淆，故同时换了新 id。
 - 侧边栏状态机：未就绪 → 占位页（Open 按钮，不在 reveal 时自动拉起服务）；`failed` → 重连页（nonce 脚本 + Retry）；`ready` → iframe；`stopped` → 回到占位页。
@@ -64,6 +67,16 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - 尚未实现（Phase 1.5 剩余）：无（sidebar、单实例、runTask 均已落地）。后续可做跨窗口 IPC 精化、终端结果收集。
 - 已知环境坑：`window.showInformationMessage`（无按钮）在自动化测试里会挂起命令返回，扩展内已改为 fire-and-forget；`dsh.stopServer`/`dsh.restartServer` 均不再 await 无操作通知。
 - `npm test` 改用 `test/run-unit-tests.js` 逐文件运行（兼容 Node 18/20/24，目录参数在 Node 24 已不可用），并新增 `tsc --noEmit` 类型检查；`smoke.test.js` 只由 `test:smoke` 运行。
+
+## Phase 2A 实施记录：Open in VS Code（进行中）
+
+- **目标链路**：DSH web 前端（`http://127.0.0.1:<port>`）里的产物文件行显示 **Open in VS Code** 按钮 → `window.parent.postMessage({ type: 'dsh:openInEditor', file })` → 父 webview 文档的 nonce 脚本校验 `event.origin` 为 loopback 后转发 `dsh.openInEditor` → 扩展宿主 `GuiPanel`/`SidebarView` 调用 `editor-bridge-vscode.openInEditorFromMessage` → `vscode.workspace.openTextDocument` + `showTextDocument` + 光标定位。
+- **父文档脚本**：`media/panel.html` 从“无脚本”升级为唯一 nonce-gated 脚本（CSP 增加 `script-src 'nonce-{{NONCE}}'`，保留 `frame-src http://127.0.0.1:*`）；`webview-html.renderIframeHtml` 现在同时填充 `{{DSH_URL}}` 与 `{{NONCE}}`。
+- **扩展侧消息校验**：`src/editor-bridge.ts`（纯 Node）校验 `dsh.openInEditor` 的 `file` 必须是绝对路径、`line`/`character` 必须是非负整数；`src/editor-bridge-vscode.ts` 负责实际打开。校验不过/文件不存在会记录输出通道并弹警告，不静默。
+- **DSH 客户端插件**：`packages/dsh-vscode-bridge` 注册 `conversation.chat.turnTail` chain 条目（`priority: -1`，先于 stock `ProducedFiles`），复用 `@deepseek-ai/dsh-client-ui-deliverables/client` 的 `ProducedFiles` 与 `producedForClosing`，在产物行下追加 “Open in VS Code” 按钮。相对路径用 `resolveWorkspacePath(cwd, path)` 转绝对路径。
+- **安装**：`dsh plugin --profile web add -w D:/michael_codes/dsh-vscode/packages/dsh-vscode-bridge`（需要 pnpm；Windows 上 `file:D:/...` 会被 pnpm 误解析，所以用纯目录路径 + `-w`），再在 `~/.dsh/profiles/web/cordis.patch.yml` 里插入 `- insert: [{ id: dsh-vscode-bridge, name: 'dsh-vscode-bridge' }]`（`dsh.client` 插件必须作为 loader 行挂载，只 `pnpm add` 不会进入 `ctx.loader.entries()`）。尚未自动随 VSIX 安装；后续可做“检测到插件缺失时提示安装”的命令。
+- **验收（2026-08-18）**：已安装到本机 web profile；真实 `dsh web` 返回 `__DSH_BOOT__` 含 `dsh-vscode-bridge` 且 `/plugins/dsh-vscode-bridge/client.js` 200；VS Code smoke 新增 `dsh.openInEditor` 用例，3 passing。真实 GUI 内点击按钮仍建议肉眼复核。
+- **未实现（Phase 2 剩余）**：2B 读取编辑器选区/活动文件注入会话上下文；2C diff 只读预览；2D 写回工具（需先过设计门槛）。
 
 ## 开发与测试注意事项
 

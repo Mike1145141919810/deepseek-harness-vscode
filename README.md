@@ -35,6 +35,23 @@ code --install-extension dsh-vscode-0.1.1.vsix
 
 调试：在仓库根目录按 F5（使用 `Run Extension` 配置，自动编译并启动扩展开发宿主）。
 
+### 安装 DSH 桥接插件（Phase 2A 可选）
+
+```powershell
+cd D:\michael_codes\dsh-vscode
+dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Path -replace '\\','/')"
+```
+
+> 需要 `pnpm` 可用（`dsh plugin` 内部转发给 pnpm）。`dsh plugin add` 只把包装进 profile 的依赖；还要把它挂到 web profile 的 loader 上。编辑 `~/.dsh/profiles/web/cordis.patch.yml`，把默认的 `[]` 换成（或追加）：
+>
+> ```yaml
+> - insert:
+>     - id: dsh-vscode-bridge
+>       name: 'dsh-vscode-bridge'
+> ```
+>
+> 完成后重启 VS Code / `DSH: Restart Server`，产物文件行即出现 **Open in VS Code** 按钮。
+
 ## 使用
 
 - 命令面板 `DSH: Open DeepSeek Harness`（或点击状态栏 `DSH`）。打开位置由 `dsh.openIn` 决定：`"panel"` 编辑器区面板、`"sidebar"` 活动栏侧边栏、`"browser"` 系统默认浏览器。
@@ -44,6 +61,7 @@ code --install-extension dsh-vscode-0.1.1.vsix
 - `DSH: Run Task (headless)`：在集成终端里跑一次 `dsh --profile headless "<task>"`，适合不需要 GUI 会话的一次性任务。
 - 服务中途崩溃时自动重启一次，面板/侧边栏切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
+- **Phase 2A（原生编辑器联动）**：在 DSH 的“产物”文件行会显示 **Open in VS Code** 按钮；点击后通过 `postMessage` 桥接到 VS Code 扩展，用 `showTextDocument` 在编辑器里打开对应文件（支持可选行号）。该功能需要把 `packages/dsh-vscode-bridge` 作为 DSH web profile 插件安装（见下文）。
 
 ## 设置（`dsh.*`）
 
@@ -62,6 +80,7 @@ code --install-extension dsh-vscode-0.1.1.vsix
 - **`dsh was not found`**：运行 `DSH: Check Installation` 查看诊断；把 `dsh.binPath` 指向 dsh 的 `lib/bin.js`，例如 `C:\Users\<你>\AppData\Local\npm-cache\_npx\<hash>\node_modules\@deepseek-ai\dsh\lib\bin.js`。
 - **`dsh server did not become healthy`**：打开输出面板（`DeepSeek Harness` 通道）看子进程日志。
 - **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
+- **点了 Open in VS Code 没反应**：先确认安装的是包含 Phase 2A 的新 VSIX，并执行 `Developer: Reload Window`（旧扩展没有桥接脚本/消息处理）。仍无反应时看输出通道 `DeepSeek Harness` 是否出现 `open in editor requested` / `opened in editor` / `open in editor failed`。
 - 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID；实例记录持久化到 globalStorage，下次启动会做 stale 检测（旧 PID 已死/端口失效则清记录并告警）。
 
 ## 安全
@@ -84,6 +103,7 @@ code --install-extension dsh-vscode-0.1.1.vsix
 - [ ] `dsh.openIn: "sidebar"` 时活动栏侧边栏完整加载 GUI，重连页/Retry 正常
 - [ ] 多窗口打开 DSH 复用同一实例（第二个窗口不新增 dsh 进程）
 - [ ] `DSH: Run Task (headless)` 在集成终端执行一次性任务
+- [ ] Phase 2A：安装 `dsh-vscode-bridge` 插件后，DSH 产物文件行出现 **Open in VS Code** 按钮，点击在编辑器打开对应文件
 - [x] VSIX 打包成功（`npm run package`）
 
 ## License

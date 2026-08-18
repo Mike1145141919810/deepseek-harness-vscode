@@ -6,6 +6,7 @@
  *   ready    -> iframe (re-rendered automatically on every new port)
  */
 import * as vscode from 'vscode';
+import { openInEditorFromMessage } from './editor-bridge-vscode';
 import { readWebviewTemplate, seedWorkspaceFolders } from './gui-common';
 import { ServerManager } from './server-manager';
 import { LoggerLike } from './types';
@@ -73,6 +74,19 @@ export class SidebarView implements vscode.WebviewViewProvider {
     };
     view.webview.onDidReceiveMessage((message: { type?: string }) => {
       if (message?.type === 'dsh.open' || message?.type === 'dsh.retry') void this.open();
+      if (message?.type === 'dsh.openInEditor') {
+        const file = (message as { file?: unknown }).file;
+        this.logger.log(`open in editor requested${typeof file === 'string' ? `: ${file}` : ''}`);
+        void openInEditorFromMessage(message)
+          .then(() => {
+            if (typeof file === 'string') this.logger.log(`opened in editor: ${file}`);
+          })
+          .catch((error) => {
+            const detail = String(error instanceof Error ? error.message : error);
+            this.logger.log(`open in editor failed: ${detail}`);
+            void vscode.window.showWarningMessage(`DeepSeek Harness: ${detail}`);
+          });
+      }
     });
 
     const url = this.pendingUrl ?? this.manager.getUrl();
@@ -89,7 +103,7 @@ export class SidebarView implements vscode.WebviewViewProvider {
     if (!this.view) return;
     const template = readWebviewTemplate(this.context, 'panel.html', this.logger);
     if (template === undefined) return;
-    this.view.webview.html = renderIframeHtml(template, url);
+    this.view.webview.html = renderIframeHtml(template, url, newNonce());
   }
 
   private renderReconnect(): void {

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'unsafe-inline'; frame-src http://127.0.0.1:*;"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{NONCE}}'; frame-src http://127.0.0.1:*;"
     />
     <style>
       html,
@@ -26,5 +26,25 @@
   </head>
   <body>
     <iframe id="dsh" title="DeepSeek Harness" src="{{DSH_URL}}"></iframe>
+    <script nonce="{{NONCE}}">
+      // Phase 2A bridge: the DSH SPA (http://127.0.0.1:<port>) posts
+      // `{ type: 'dsh:openInEditor', file, line? }` when the user clicks
+      // "Open in VS Code". Only loopback iframe messages are forwarded to the
+      // extension host; the parent document still runs no other scripts.
+      const vscode = acquireVsCodeApi();
+      const dshFrame = document.getElementById('dsh');
+      window.addEventListener('message', (event) => {
+        if (event.source !== dshFrame.contentWindow) return;
+        if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(event.origin)) return;
+        const data = event.data;
+        if (!data || data.type !== 'dsh:openInEditor' || typeof data.file !== 'string') return;
+        vscode.postMessage({
+          type: 'dsh.openInEditor',
+          file: data.file,
+          line: typeof data.line === 'number' ? data.line : undefined,
+          character: typeof data.character === 'number' ? data.character : undefined,
+        });
+      });
+    </script>
   </body>
 </html>
