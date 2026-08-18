@@ -27,8 +27,8 @@ WebviewPanel ──iframe──► http://127.0.0.1:N  (SPA + /api + WebSocket)
 cd D:\michael_codes\dsh-vscode\extension
 npm install
 npm run compile
-npx vsce package        # 产出 dsh-vscode-0.1.0.vsix
-code --install-extension dsh-vscode-0.1.0.vsix
+npx vsce package        # 产出 dsh-vscode-0.1.1.vsix
+code --install-extension dsh-vscode-0.1.1.vsix
 ```
 
 调试：在仓库根目录按 F5（使用 `Run Extension` 配置，自动编译并启动扩展开发宿主）。

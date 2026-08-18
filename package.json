@@ -1,7 +1,7 @@
 {
   "name": "dsh-vscode-workspace",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness VS Code extension workspace (extension + future DSH bridge plugin)",
   "scripts": {
     "compile": "npm --prefix extension run compile",

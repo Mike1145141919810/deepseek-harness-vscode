@@ -119,11 +119,11 @@ sidebar view resolved (visible=true)
 
 ```powershell
 cd D:\michael_codes\dsh-vscode\extension
-npm run package                        # 产出 dsh-vscode-0.1.0.vsix
-code --install-extension dsh-vscode-0.1.0.vsix --force
+npm run package                        # 产出 dsh-vscode-0.1.1.vsix
+code --install-extension dsh-vscode-0.1.1.vsix --force
 ```
 
-安装后：完全退出并重开 VS Code → 点活动栏机器人图标 → 重复 §2 的 A/B/C/E/F。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.1.0`。
+安装后：完全退出并重开 VS Code → 点活动栏机器人图标 → 重复 §2 的 A/B/C/E/F。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.1.1`。
 
 ---
 
@@ -139,7 +139,7 @@ code --install-extension dsh-vscode-0.1.0.vsix --force
 | D Retry 按钮 | ✅ | 2026-08-16 | — |
 | E stale 检测 | ✅ | 2026-08-16 | — |
 | F 侧边栏解析 | ✅ | 2026-08-16 | `type: webview` 修复后 |
-| VSIX 打包 + 安装 | ✅ | 2026-08-16 | `dsh-vscode-0.1.0.vsix` |
+| VSIX 打包 + 安装 | ✅ | 2026-08-16 | `dsh-vscode-0.1.1.vsix` |
 
 ---
 
