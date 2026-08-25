@@ -8,13 +8,13 @@
 
 ## 工作原理
 
-扩展在你的机器上拉起一个 `dsh web` 服务（强制绑定 `127.0.0.1`，端口由扩展预分配），然后用 Webview 面板内的 iframe 加载它。DSH 前端与后端**零改动**，所有会话、skill、审批、设置页面原样可用。
+扩展在你的机器上拉起一个 `dsh web` 服务（强制绑定 `127.0.0.1`，端口由扩展预分配），然后用 Webview 面板或侧边栏中的 iframe 加载它。DSH 前端与后端**零改动**，所有会话、skill、审批、设置页面原样可用。
 
 ```
 VS Code Extension Host                DSH (你的机器)
 ─────────────────────                ─────────────────
 dsh.open ──► 预分配端口 ──► spawn dsh web --host 127.0.0.1 --port N
-WebviewPanel ──iframe──► http://127.0.0.1:N  (SPA + /api + WebSocket)
+Panel / Sidebar ─iframe─► http://127.0.0.1:N  (SPA + /api + WebSocket)
 ```
 
 ## 前置条件
@@ -26,31 +26,23 @@ WebviewPanel ──iframe──► http://127.0.0.1:N  (SPA + /api + WebSocket)
 ## 安装（开发 / 本地）
 
 ```powershell
-cd D:\michael_codes\dsh-vscode\extension
-npm install
-npm run compile
-npx vsce package        # 产出 dsh-vscode-0.1.1.vsix
-code --install-extension dsh-vscode-0.1.1.vsix
+cd deepseek-harness-vscode
+npm install --prefix extension
+npm run package
+code --install-extension extension\dsh-vscode-0.1.1.vsix
 ```
 
 调试：在仓库根目录按 F5（使用 `Run Extension` 配置，自动编译并启动扩展开发宿主）。
 
-### 安装 DSH 桥接插件（Phase 2A 可选）
+### 启用 Open in VS Code（Phase 2A，可选）
 
-```powershell
-cd D:\michael_codes\dsh-vscode
-dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Path -replace '\\','/')"
-```
+1. 打开命令面板，执行 `DSH: Install VS Code Bridge`。
+2. 阅读模态确认内容并选择 **Install**（已安装时显示 **Reinstall**）。
+3. 安装完成后选择 **Restart DSH**。
 
-> 需要 `pnpm` 可用（`dsh plugin` 内部转发给 pnpm）。`dsh plugin add` 只把包装进 profile 的依赖；还要把它挂到 web profile 的 loader 上。编辑 `~/.dsh/profiles/web/cordis.patch.yml`，把默认的 `[]` 换成（或追加）：
->
-> ```yaml
-> - insert:
->     - id: dsh-vscode-bridge
->       name: 'dsh-vscode-bridge'
-> ```
->
-> 完成后重启 VS Code / `DSH: Restart Server`，产物文件行即出现 **Open in VS Code** 按钮。
+桥接包已包含在 VSIX 中，不需要源码仓库。命令会调用 `dsh plugin --profile web add`，幂等补齐 web profile 的 loader 条目；需要修改 `cordis.patch.yml` 时会先保留备份。执行 `DSH: Check Installation` 可查看 `bridge: READY` 或具体缺失项。
+
+> `dsh plugin` 内部调用 `pnpm`，因此启用桥接功能时仍需本机可用的 `pnpm`。扩展只捆绑桥接插件，不捆绑 DSH 本体。
 
 ## 使用
 
@@ -61,7 +53,7 @@ dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Pat
 - `DSH: Run Task (headless)`：在集成终端里跑一次 `dsh --profile headless "<task>"`，适合不需要 GUI 会话的一次性任务。
 - 服务中途崩溃时自动重启一次，面板/侧边栏切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
-- **Phase 2A（原生编辑器联动）**：在 DSH 的“产物”文件行会显示 **Open in VS Code** 按钮；点击后通过 `postMessage` 桥接到 VS Code 扩展，用 `showTextDocument` 在编辑器里打开对应文件（支持可选行号）。该功能需要把 `packages/dsh-vscode-bridge` 作为 DSH web profile 插件安装（见下文）。
+- **Phase 2A（原生编辑器联动）**：执行 `DSH: Install VS Code Bridge` 后，DSH 的“产物”文件行会显示 **Open in VS Code** 按钮；点击后通过 `postMessage` 桥接到 VS Code 扩展，用 `showTextDocument` 在编辑器里打开对应文件（支持可选行号）。
 
 ## 设置（`dsh.*`）
 
@@ -80,13 +72,13 @@ dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Pat
 - **`dsh was not found`**：运行 `DSH: Check Installation` 查看诊断；把 `dsh.binPath` 指向 dsh 的 `lib/bin.js`，例如 `C:\Users\<你>\AppData\Local\npm-cache\_npx\<hash>\node_modules\@deepseek-ai\dsh\lib\bin.js`。
 - **`dsh server did not become healthy`**：打开输出面板（`DeepSeek Harness` 通道）看子进程日志。
 - **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
-- **点了 Open in VS Code 没反应**：先确认安装的是包含 Phase 2A 的新 VSIX，并执行 `Developer: Reload Window`（旧扩展没有桥接脚本/消息处理）。仍无反应时看输出通道 `DeepSeek Harness` 是否出现 `open in editor requested` / `opened in editor` / `open in editor failed`。
+- **点了 Open in VS Code 没反应**：先执行 `DSH: Check Installation`，确认输出含 `bridge: READY`；否则运行 `DSH: Install VS Code Bridge`。仍无反应时执行 `Developer: Reload Window`，并查看输出通道是否出现 `open in editor requested` / `opened in editor` / `open in editor failed`。
 - 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID；实例记录持久化到 globalStorage，下次启动会做 stale 检测（旧 PID 已死/端口失效则清记录并告警）。
 
 ## 安全
 
 - 服务只绑定 `127.0.0.1`；安全相关参数不允许通过 `extraArgs` 覆盖。
-- Webview 的 CSP 仅允许 `http://127.0.0.1:*` 帧，父文档不执行脚本、不加载远程内容。
+- Webview 的 CSP 仅允许 `http://127.0.0.1:*` 帧；父文档只执行带每次渲染 nonce 的本地桥接脚本，不允许远程脚本。
 - 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树并校验端口释放；异常崩溃场景在下次启动时做 stale 检测并告警。
 
 ## MVP 验收清单（人工）
@@ -98,11 +90,12 @@ dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Pat
 - [x] 面板隐藏/重开后会话仍在
 - [x] `Stop Server` 后进程列表无残留 dsh 进程（重启后亦然）
 - [x] 删除 PATH 里的 dsh 后报错信息可操作
-- [ ] 服务中途崩溃后面板显示重连页，自动重启后 iframe 自动恢复
-- [ ] 强杀残留 dsh 后下次启动 stale 检测清记录并告警
-- [ ] `dsh.openIn: "sidebar"` 时活动栏侧边栏完整加载 GUI，重连页/Retry 正常
-- [ ] 多窗口打开 DSH 复用同一实例（第二个窗口不新增 dsh 进程）
+- [x] 服务中途崩溃后面板显示重连页，自动重启后 iframe 自动恢复
+- [x] 强杀残留 dsh 后下次启动 stale 检测清记录并告警
+- [x] `dsh.openIn: "sidebar"` 时活动栏侧边栏完整加载 GUI，重连页/Retry 正常
+- [x] 多窗口打开 DSH 复用同一实例（第二个窗口不新增 dsh 进程）
 - [ ] `DSH: Run Task (headless)` 在集成终端执行一次性任务
+- [x] Phase 2A 桥接包随 VSIX 发布，一键安装后端在隔离 `DSH_HOME` 真实验证通过
 - [ ] Phase 2A：安装 `dsh-vscode-bridge` 插件后，DSH 产物文件行出现 **Open in VS Code** 按钮，点击在编辑器打开对应文件
 - [x] VSIX 打包成功（`npm run package`）
 

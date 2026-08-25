@@ -27,7 +27,9 @@ npm test
   - `[stale] cleared stale dsh instance record ...`
   - `dsh ready at http://127.0.0.1:<port> (pid=... instance=...)`
   - `step: process count returns to baseline`
-- 结尾：`All 8 test file(s) passed.`（42 个测试全绿）
+- 结尾：`All 10 test file(s) passed.`（53 个测试全绿：51 个纯单元测试 + 2 个真实 DSH 集成测试）
+
+> 真实 DSH 集成测试会写入隔离/用户 `DSH_HOME` 并查询进程；受限沙箱中应单独在沙箱外运行 `node --test dist-test/server-manager.integration.test.js`。
 
 ### 1.2 真实 VS Code 冒烟测试
 
@@ -118,12 +120,14 @@ sidebar view resolved (visible=true)
 
 ### G. Phase 2A：Open in VS Code（需先安装 bridge 插件）
 
-1. 安装：`cd D:\michael_codes\dsh-vscode; dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Path -replace '\\','/')"`（需要 pnpm）；再把 `- insert: [{ id: dsh-vscode-bridge, name: 'dsh-vscode-bridge' }]` 写入 `~/.dsh/profiles/web/cordis.patch.yml`。
-2. `DSH: Restart Server`，打开面板/侧边栏。
+1. 执行 `DSH: Install VS Code Bridge`，在模态确认中选择 **Install**（需要 pnpm）。
+2. 安装完成后选择 **Restart DSH**；再执行 `DSH: Check Installation`，确认输出含 `bridge: READY`。
 3. 让 agent 创建/修改文件，在产物文件行点击 **Open in VS Code**。
 4. 观察：文件在 VS Code 编辑器打开；若消息带行号，光标定位到该行。
 
 **通过标准**：输出通道无 `open in editor failed`；文件出现在编辑器且选中对应位置。
+
+**安装后端自动验收（2026-08-25）**：桥接包随 VSIX 打包；在临时隔离 `DSH_HOME` 中真实调用 DSH/pnpm，依赖落盘、loader 插入、原 patch 备份和最终 `installed` 状态全部通过；临时目录清理后真实 `~/.dsh` 未变化。
 
 ---
 
@@ -135,7 +139,7 @@ npm run package                        # 产出 dsh-vscode-0.1.1.vsix
 code --install-extension dsh-vscode-0.1.1.vsix --force
 ```
 
-安装后：完全退出并重开 VS Code → 点活动栏机器人图标 → 重复 §2 的 A/B/C/E/F。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.1.1`。
+安装后：完全退出并重开 VS Code → 点活动栏机器人图标 → 执行 `DSH: Install VS Code Bridge` → 重复 §2 的 A/B/C/E/F/G。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.1.1`。
 
 ---
 
@@ -143,16 +147,17 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 
 | 项 | 结果 | 日期 | 备注 |
 |---|---|---|---|
-| npm test（6 文件 / 33 测试） | ✅ | 2026-08-16 | 含真实 dsh web 集成 |
-| npm run test:smoke（2 passing） | ✅ | 2026-08-16 | 含侧边栏 WebviewView 解析 |
+| 自动化测试（10 文件 / 53 测试） | ✅ | 2026-08-25 | 51 个纯单元测试；真实 dsh web 集成 2/2 在沙箱外通过 |
+| npm run test:smoke（3 passing） | ✅ | 2026-08-16 | panel/HTTP、Open in Editor、侧边栏 WebviewView 解析 |
 | A 正常打开 + 记录 | ✅ | 2026-08-16 | — |
 | B Stop + 端口释放 | ✅ | 2026-08-16 | — |
 | C 崩溃自动恢复 | ✅ | 2026-08-16 | — |
 | D Retry 按钮 | ✅ | 2026-08-16 | — |
 | E stale 检测 | ✅ | 2026-08-16 | — |
 | F 侧边栏解析 | ✅ | 2026-08-16 | `type: webview` 修复后 |
-| G Phase 2A Open in VS Code | ✅ | 2026-08-18 | 已安装 bridge 插件；`__DSH_BOOT__`/`/plugins/.../client.js` 验证通过；VS Code smoke 3 passing。真实 GUI 点击仍建议肉眼复核 |
-| VSIX 打包 + 安装 | ✅ | 2026-08-16 | `dsh-vscode-0.1.1.vsix` |
+| G Phase 2A Open in VS Code | 🟡 | 2026-08-25 | 扩展侧 smoke、插件装载和一键安装后端通过；真实 GUI 点击仍待肉眼复核 |
+| Phase 2A VSIX 分发 + 隔离安装 | ✅ | 2026-08-25 | VSIX 内含 bridge；临时 `DSH_HOME` 中真实 DSH/pnpm 安装、备份、loader 和清理全部通过 |
+| VSIX 打包 + 安装 | ✅ | 2026-08-25 | `dsh-vscode-0.1.1.vsix`，15 文件 / 29.56 KB |
 
 ---
 
@@ -161,5 +166,5 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 - **「没有可提供视图数据的已注册数据提供程序」**：检查 `extension/package.json` 的 `contributes.views` 中 `dsh.sidebarView` 是否有 `"type": "webview"`，并确认输出通道有 `sidebar WebviewViewProvider registered`。
 - **`workspace seed failed ... HTTP 404`**：dsh API 路由晚于 HTTP 监听就绪，扩展已内置重试（250ms→500ms→1s），一般会自动恢复；持续 404 则检查 dsh 版本是否异常。
 - **输出通道没有 `dsh ready`**：先 `DSH: Check Installation` 看诊断链；确认 `dsh` 在 PATH 或 `dsh.binPath` 有效。
-- **点了 Open in VS Code 没反应**：先确认安装的是含 Phase 2A 的新 VSIX，并 `Developer: Reload Window`；再看输出通道有没有 `open in editor requested` / `opened in editor` / `open in editor failed`。
+- **点了 Open in VS Code 没反应**：先运行 `DSH: Check Installation`，不是 `bridge: READY` 时执行 `DSH: Install VS Code Bridge`；再 `Developer: Reload Window`，并查看输出通道有没有 `open in editor requested` / `opened in editor` / `open in editor failed`。
 - **测试时命令挂住**：`showInformationMessage` 无按钮时不要 `await`（扩展内已 fire-and-forget）；自动化环境里活动栏视图可能无法真实可见，侧边栏以人工 F5 为准。

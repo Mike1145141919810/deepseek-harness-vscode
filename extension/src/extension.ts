@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { describeBridgeInstallation, detectBridgeInstallation } from './bridge-installation';
+import { installBundledBridge } from './bridge-installer';
 import { openInEditorFromMessage } from './editor-bridge-vscode';
 import { GuiPanel } from './gui-panel';
 import { buildHeadlessInvocation } from './headless';
@@ -57,6 +59,55 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     }
   };
 
+  const installBridge = async (): Promise<void> => {
+    const before = detectBridgeInstallation();
+    if (before.state === 'profile-invalid') {
+      await vscode.window.showErrorMessage(`DeepSeek Harness: ${describeBridgeInstallation(before)}`);
+      return;
+    }
+    const actionLabel = before.state === 'installed' ? 'Reinstall' : 'Install';
+    const loaderPatchPath = vscode.Uri.joinPath(vscode.Uri.file(before.profileDir), 'cordis.patch.yml').fsPath;
+    const action = await vscode.window.showWarningMessage(
+      `${actionLabel} the VS Code bridge in the DSH web profile?`,
+      {
+        modal: true,
+        detail: `This runs dsh plugin add using the bridge bundled with this extension and updates ${loaderPatchPath}. The existing patch file is backed up before any change.`,
+      },
+      actionLabel,
+    );
+    if (action !== actionLabel) return;
+
+    try {
+      const resolved = await discoverCommand(getSettings());
+      const bundledBridgeDir = vscode.Uri.joinPath(
+        context.extensionUri,
+        'dist',
+        'dsh-vscode-bridge',
+      ).fsPath;
+      const result = await installBundledBridge({
+        bundledBridgeDir,
+        resolvedCommand: resolved,
+        profileDir: before.profileDir,
+      });
+      if (result.output.stdout.trim() !== '') logger.log(`[bridge installer stdout] ${result.output.stdout.trim()}`);
+      if (result.output.stderr.trim() !== '') logger.log(`[bridge installer stderr] ${result.output.stderr.trim()}`);
+      logger.log(`bridge installation verified: ${describeBridgeInstallation(result.status)}`);
+      if (result.patchBackupPath !== undefined) logger.log(`bridge loader backup: ${result.patchBackupPath}`);
+
+      const restart = await vscode.window.showInformationMessage(
+        'DeepSeek Harness VS Code bridge installed. Restart DSH to load it.',
+        'Restart DSH',
+      );
+      if (restart === 'Restart DSH') await manager.restart();
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      logger.log(`bridge installation failed: ${message}`);
+      await vscode.window.showErrorMessage(`DeepSeek Harness bridge installation failed: ${message}`, 'Open output').then((choice) => {
+        if (choice === 'Open output') logger.show();
+      });
+    }
+  };
+
   context.subscriptions.push(
     // `dsh.open` follows the `dsh.openIn` setting; `dsh.openBrowser` always
     // targets the system default browser.
@@ -105,6 +156,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     vscode.commands.registerCommand('dsh.checkInstall', async () => {
       await runDiagnostics(manager, logger);
     }),
+    vscode.commands.registerCommand('dsh.installBridge', installBridge),
     vscode.commands.registerCommand('dsh.runTask', async () => {
       const task = await vscode.window.showInputBox({
         prompt: 'Task for the DSH headless runner',
@@ -171,6 +223,7 @@ async function runDiagnostics(manager: ServerManager, logger: Logger): Promise<v
   lines.push(`binPath setting: ${settings.binPath === '' ? '(empty, auto-detect)' : settings.binPath}`);
   lines.push(`allowNpxFallback: ${settings.allowNpxFallback}`);
   lines.push(`pinnedVersion: ${settings.pinnedVersion}`);
+  lines.push(`bridge: ${describeBridgeInstallation(detectBridgeInstallation())}`);
   const problems = forbiddenExtraArgs(settings.extraArgs);
   lines.push(
     problems.length === 0

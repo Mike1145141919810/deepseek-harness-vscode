@@ -5,23 +5,15 @@ DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** �
 
 ## 安装
 
-需要 `pnpm` 可用（`dsh plugin` 内部转发给 pnpm）。
+推荐通过 DeepSeek Harness VS Code 扩展安装：
 
-```powershell
-cd D:\michael_codes\dsh-vscode
-dsh plugin --profile web add -w "$((Resolve-Path packages\dsh-vscode-bridge).Path -replace '\\','/')"
-```
+1. 在 VS Code 命令面板执行 `DSH: Install VS Code Bridge`。
+2. 在模态确认中选择 **Install**（已安装时显示 **Reinstall**）。
+3. 安装完成后选择 **Restart DSH**。
 
-然后把插件挂到 web profile loader：编辑 `~/.dsh/profiles/web/cordis.patch.yml`，
-把默认的 `[]` 换成（或追加）：
+桥接包已包含在 VSIX 中。命令会调用 `dsh plugin --profile web add`，确认依赖已落盘后再幂等补齐 loader 条目；需要改写 `cordis.patch.yml` 时会先保留备份，最后重新检测安装状态。执行 `DSH: Check Installation` 应显示 `bridge: READY`。
 
-```yaml
-- insert:
-    - id: dsh-vscode-bridge
-      name: 'dsh-vscode-bridge'
-```
-
-安装后重启 VS Code（或执行 `DSH: Restart Server`）。
+需要本机可用的 `pnpm`（`dsh plugin` 内部会调用它）。
 
 ## 工作原理
 

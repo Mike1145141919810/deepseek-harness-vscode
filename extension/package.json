@@ -54,6 +54,11 @@
         "category": "DSH"
       },
       {
+        "command": "dsh.installBridge",
+        "title": "Install VS Code Bridge",
+        "category": "DSH"
+      },
+      {
         "command": "dsh.runTask",
         "title": "Run Task (headless)",
         "category": "DSH"
