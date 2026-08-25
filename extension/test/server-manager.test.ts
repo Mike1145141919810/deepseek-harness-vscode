@@ -144,10 +144,8 @@ describe('discoverCommand', () => {
   it('fails with DSH_NOT_FOUND when dsh is not on the (injected) PATH and npx is off', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-nopath-'));
     try {
-      // Keep `where`/`which` resolvable by including the system directory.
-      const systemDir = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/usr/bin';
       await assert.rejects(
-        discoverCommand({ ...baseSettings, binPath: '', allowNpxFallback: false }, process.platform, `${dir}${path.delimiter}${systemDir}`),
+        discoverCommand({ ...baseSettings, binPath: '', allowNpxFallback: false }, process.platform, dir),
         (error: unknown) => error instanceof DshError && error.code === 'DSH_NOT_FOUND',
       );
     } finally {
@@ -167,7 +165,7 @@ describe('discoverCommand', () => {
       const command = await discoverCommand(
         { ...baseSettings, binPath: '', allowNpxFallback: false },
         process.platform,
-        `${dir}${path.delimiter}C:\\Windows\\System32`,
+        dir,
       );
       assert.equal(command.kind, 'path');
       assert.ok(command.command.replace(/"/g, '').toLowerCase().endsWith('dsh.cmd'));
@@ -189,7 +187,7 @@ describe('discoverCommand', () => {
       const command = await discoverCommand(
         { ...baseSettings, binPath: '', allowNpxFallback: false },
         process.platform,
-        `${dir}${path.delimiter}C:\\Windows\\System32`,
+        dir,
       );
       assert.equal(command.kind, 'path');
       assert.ok(command.command.replace(/"/g, '').toLowerCase().endsWith('dsh.cmd'));
@@ -216,7 +214,7 @@ describe('discoverCommand', () => {
       const command = await discoverCommand(
         { ...baseSettings, binPath: '', allowNpxFallback: false },
         process.platform,
-        `${binDir}${path.delimiter}C:\\Windows\\System32`,
+        binDir,
       );
       assert.equal(command.kind, 'node-bin');
       assert.equal(command.command, process.execPath);

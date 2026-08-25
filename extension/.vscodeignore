@@ -3,6 +3,8 @@ test/**
 tsconfig.json
 esbuild.js
 dist-test/**
-*.map
+**/*.map
+.vscode-test/**
+*.vsix
 .gitignore
 .vscode/**

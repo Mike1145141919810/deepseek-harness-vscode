@@ -100,18 +100,7 @@ export function resolveNodeBinary(
 }
 
 function findOnPathSync(name: string, win: boolean, pathEnv: string): string | undefined {
-  const command = win ? 'where' : 'which';
-  try {
-    const result = cp.execFileSync(command, [name], {
-      encoding: 'utf8',
-      windowsHide: true,
-      env: { ...process.env, PATH: pathEnv },
-    });
-    const first = result.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0);
-    return first;
-  } catch {
-    return undefined;
-  }
+  return findAllOnPath(name, win, pathEnv)[0];
 }
 
 /** Locate dsh: 1) settings.binPath, 2) PATH, 3) npx (explicit opt-in). */
@@ -191,17 +180,49 @@ export async function discoverCommand(
 }
 
 async function findOnPath(name: string, win: boolean, pathEnv: string): Promise<string[]> {
-  const command = win ? 'where' : 'which';
-  try {
-    const result = cp.execFileSync(command, [name], {
-      encoding: 'utf8',
-      windowsHide: true,
-      env: { ...process.env, PATH: pathEnv },
-    });
-    return result.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  } catch {
-    return [];
+  return findAllOnPath(name, win, pathEnv);
+}
+
+/**
+ * Search an explicit PATH without spawning `where`/`which`.
+ *
+ * On Windows, environment keys are case-insensitive but Node can retain both
+ * `Path` and `PATH` in the object passed to a child process. Which value wins
+ * is undefined, so `where` could silently search the extension host's PATH
+ * instead of the caller-supplied one. Direct filesystem lookup makes the
+ * injected PATH authoritative and keeps discovery deterministic in tests and
+ * in VS Code.
+ */
+function findAllOnPath(name: string, win: boolean, pathEnv: string): string[] {
+  const delimiter = win ? path.win32.delimiter : path.posix.delimiter;
+  const hasExtension = path.extname(name) !== '';
+  const names = hasExtension
+    ? [name]
+    : win
+      ? [name, `${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.ps1`, `${name}.com`]
+      : [name];
+  const matches: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawEntry of pathEnv.split(delimiter)) {
+    const entry = rawEntry.trim().replace(/^"(.*)"$/, '$1');
+    if (entry === '') continue;
+    for (const candidateName of names) {
+      const candidate = path.resolve(entry, candidateName);
+      const key = win ? candidate.toLowerCase() : candidate;
+      if (seen.has(key) || !exists(candidate)) continue;
+      if (!win) {
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+        } catch {
+          continue;
+        }
+      }
+      seen.add(key);
+      matches.push(candidate);
+    }
   }
+  return matches;
 }
 
 /**
