@@ -2,10 +2,10 @@
 
 > 本文档用于验证 DeepSeek Harness VS Code 扩展在当前机器上可安装、可激活、可运行，并记录验证结果。任何一次发版/大改动后按本清单复验。
 
-## 环境（2026-08-16 实测基线）
+## 环境（2026-08-25 实测基线）
 
 - VS Code：1.123.0（桌面版，本地扩展宿主）
-- dsh：全局安装 `@deepseek-ai/dsh@0.1.0-rc.6`（与 `dsh.pinnedVersion` 一致），空 `dsh.binPath` 自动发现
+- dsh：全局安装 `@deepseek-ai/dsh@0.1.1-rc.2`（与 `dsh.pinnedVersion` 一致），空 `dsh.binPath` 自动发现
 - 用户级设置：`dsh.openIn = "sidebar"`
 - 注意：F5 开发宿主不继承 workspace 级 `.vscode/settings.json`，测设置相关项一律用用户级设置
 

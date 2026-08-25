@@ -81,4 +81,4 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 ## 开发与测试注意事项
 
 - VS Code ≥ 1.123 的 F5 开发宿主运行在主窗口的 utility 进程里，**不继承 workspace 级 `.vscode/settings.json`**；在开发宿主里验证设置相关行为时一律用**用户级**设置。
-- 仓库不提交机器相关的 `dsh.binPath` workspace 设置（npx 缓存路径会失效）。本机验证环境用 `npm install -g @deepseek-ai/dsh@0.1.0-rc.6`（与 `dsh.pinnedVersion` 一致），空 `binPath` 即可自动发现。
+- 仓库不提交机器相关的 `dsh.binPath` workspace 设置（npx 缓存路径会失效）。本机验证环境用 `npm install -g @deepseek-ai/dsh@0.1.1-rc.2`（与 `dsh.pinnedVersion` 一致），空 `binPath` 即可自动发现。

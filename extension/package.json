@@ -125,7 +125,7 @@
         },
         "dsh.pinnedVersion": {
           "type": "string",
-          "default": "0.1.0-rc.6",
+          "default": "0.1.1-rc.2",
           "description": "dsh version used by the npx fallback."
         }
       }

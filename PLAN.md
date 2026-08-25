@@ -81,7 +81,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
   - **状态机**：`idle→starting→ready→failed→stopping→stopped`；崩溃自动重启 1 次；`deactivate` 触发关闭序列。
   - **实例记录**：root PID + 进程树 + 端口 + 启动时间戳 + instanceId，写入输出通道；启动时做 stale 检测（记录 PID 已死则清锁并告警）。
 - **gui-panel.ts**：`createWebviewPanel`（`retainContextWhenHidden: true`）；CSP meta `default-src 'none'; style-src 'unsafe-inline'; frame-src http://127.0.0.1:*;`（不放行 `localhost:*`，因 `--host` 固定 127.0.0.1）；崩溃/加载失败显示重连页。
-- **扩展面**：命令 `dsh.open`、`dsh.openBrowser`（openExternal）、`dsh.restartServer`、`dsh.stopServer`、`dsh.showUrl`、`dsh.checkInstall`；设置 `dsh.binPath`("")、`dsh.openIn`("panel"|"browser","panel")、`dsh.allowNpxFallback`(false)、`dsh.autoStart`(false)、`dsh.extraArgs`([]，安全校验)、`dsh.pinnedVersion`("0.1.0-rc.6")；活动栏图标 + 状态栏项。
+- **扩展面**：命令 `dsh.open`、`dsh.openBrowser`（openExternal）、`dsh.restartServer`、`dsh.stopServer`、`dsh.showUrl`、`dsh.checkInstall`；设置 `dsh.binPath`("")、`dsh.openIn`("panel"|"browser","panel")、`dsh.allowNpxFallback`(false)、`dsh.autoStart`(false)、`dsh.extraArgs`([]，安全校验)、`dsh.pinnedVersion`("0.1.1-rc.2")；活动栏图标 + 状态栏项。
 - 打包 VSIX；README（安装、依赖、配置、故障排查表、Remote 不支持声明）。
 
 ### Phase 1.1 — 可靠性 / 进程管理加固

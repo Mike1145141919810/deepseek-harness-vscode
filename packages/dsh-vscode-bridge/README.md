@@ -34,5 +34,5 @@ dsh plugin --profile web remove -w dsh-vscode-bridge
 
 ## 版本兼容
 
-目标 DSH `0.1.0-rc.6`（与扩展 `dsh.pinnedVersion` 一致）。若 DSH 客户端
+目标 DSH `0.1.1-rc.2`（与扩展 `dsh.pinnedVersion` 一致）。若 DSH 客户端
 slot/插件接口变更，`lib/client.js` 需要随上游适配。

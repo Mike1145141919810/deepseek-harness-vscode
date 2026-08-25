@@ -29,7 +29,7 @@ const settings: DshSettings = {
   autoStart: false,
   autoWorkspace: true,
   extraArgs: [],
-  pinnedVersion: '0.1.0-rc.6',
+  pinnedVersion: '0.1.1-rc.2',
 };
 
 async function dshAvailable(): Promise<boolean> {

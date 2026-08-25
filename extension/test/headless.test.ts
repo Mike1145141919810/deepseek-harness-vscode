@@ -11,7 +11,7 @@ const settings: DshSettings = {
   autoStart: false,
   autoWorkspace: true,
   extraArgs: [],
-  pinnedVersion: '0.1.0-rc.6',
+  pinnedVersion: '0.1.1-rc.2',
 };
 
 const nodeBin: ResolvedCommand = {
@@ -31,7 +31,7 @@ const pathCmd: ResolvedCommand = {
 const npxCmd: ResolvedCommand = {
   kind: 'npx',
   command: 'npx.cmd',
-  args: ['--yes', '@deepseek-ai/dsh@0.1.0-rc.6'],
+  args: ['--yes', '@deepseek-ai/dsh@0.1.1-rc.2'],
   shell: true,
 };
 

@@ -58,7 +58,7 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 | `dsh.autoStart` | `false` | VS Code 启动时自动拉起服务 |
 | `dsh.autoWorkspace` | `true` | 打开 GUI 表面时自动把 VS Code 当前工作区文件夹注册为 DSH 工作区 |
 | `dsh.extraArgs` | `[]` | 附加 dsh 参数；`--host`/`--port`/`--trusted-host` 会被拒绝 |
-| `dsh.pinnedVersion` | `"0.1.0-rc.6"` | npx 兜底使用的版本 |
+| `dsh.pinnedVersion` | `"0.1.1-rc.2"` | npx 兜底使用的版本 |
 
 ## 故障排查
 
