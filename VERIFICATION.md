@@ -28,7 +28,8 @@ npm test
   - `dsh ready at http://127.0.0.1:<port> (pid=... instance=...)`
   - `step: process count returns to baseline`
 - `bridge-editor-context.test` 验证 Host 入口无需外部模块解析即可加载，`/vscode-context` 严格拒绝畸形/超限输入，且只调用 `agent.inject`
-- 结尾：`All 12 test file(s) passed.`（67 个测试全绿：65 个纯单元测试 + 2 个真实 DSH 集成测试）
+- `editor-context-bridge.test` 与 `webview-html.test` 验证 requestId/sessionId 关联、结构化响应、iframe source + 精确 origin 校验以及下行禁止 wildcard target
+- 结尾：`All 13 test file(s) passed.`（72 个测试全绿：70 个纯单元测试 + 2 个真实 DSH 集成测试）
 
 > 真实 DSH 集成测试会写入隔离/用户 `DSH_HOME` 并查询进程；受限沙箱中应单独在沙箱外运行 `node --test dist-test/server-manager.integration.test.js`。
 

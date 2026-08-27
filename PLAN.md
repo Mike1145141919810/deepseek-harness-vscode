@@ -93,7 +93,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 
 ### Phase 2 — 原生编辑器联动（`packages/dsh-vscode-bridge`，按 2A→2D 递进，每步独立验收）
 - **2A Open in Editor**：client plugin 给文件路径加按钮，`window.parent.postMessage` 发 `{type:'dsh:openInEditor', file, line}`；扩展 parent 文档 nonce 脚本收消息 → `vscode.window.showTextDocument`。
-- **2B Read editor context**：用户显式请求时，扩展读取最后一个仍打开的本地文件编辑器/主选区（不自动读全文）→ client `SessionFace.command('/vscode-context <json>')` → Host `commands.register({ recordInput: false })` → `agent.inject(UserMessage source=plugin/form=snapshot)`；`inject` 不唤醒空闲会话。读取层与 Host 命令已实现，双向 Webview 通道和会话按钮待接入。
+- **2B Read editor context**：用户显式请求时，扩展读取最后一个仍打开的本地文件编辑器/主选区（不自动读全文）→ client `SessionFace.command('/vscode-context <json>')` → Host `commands.register({ recordInput: false })` → `agent.inject(UserMessage source=plugin/form=snapshot)`；`inject` 不唤醒空闲会话。读取层、Host 命令及父 Webview/扩展双向通道已实现，DSH client 会话按钮与响应适配待接入。
 - **2C Diff preview**：fs 变更只读预览（diff viewer），不落盘。
 - **2D Apply edit**：`vscode_apply_diff` 类写回工具，需先满足设计门槛：workspace trust 检查、用户确认流、单文件先行、undo 策略、非 workspace 文件拒绝——门槛不满足就停在 2C。
 - 安装机制（2A 起）：`dsh plugin --profile web add file:../packages/dsh-vscode-bridge` + `cordis.patch.yml` 插入行；postMessage 为主通道，WS downlink 仅作备选。
@@ -105,7 +105,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 
 - **Phase 1**：命令 → 预分配端口 → spawn `dsh web --host 127.0.0.1 --port N` → 探活 → iframe 加载 → 前端同源直连 `/api`+WS（协议不变）。
 - **Phase 2 出向**：host 插件工具（2D 起）→ 会话事件 → client 插件 postMessage → 扩展 → `vscode.*` API。
-- **Phase 2 入向**（2B）：扩展显式读取编辑器状态 → iframe 双向 `postMessage`（待接入）→ client 当前会话 `SessionFace.command` → Host `/vscode-context` → `agent.inject`（non-waking snapshot）。
+- **Phase 2 入向**（2B）：DSH client 显式请求（待接入）→ iframe 双向 `postMessage`（requestId + 点击时 sessionId，父页精确 origin）→ 扩展读取编辑器状态 → 回传 client → `SessionFace.command` → Host `/vscode-context` → `agent.inject`（non-waking snapshot）。
 
 ## 7. 边界情况与失败模式
 
@@ -136,7 +136,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 ## 10. 风险与开放问题
 
 - **风险**：webview iframe 策略随 VS Code 版本收紧 → Phase 0.5 实测 + browser 兜底；dsh rc 接口漂移 → 钉版本 + 适配层 + 烟测；webview 内原生目录选择器可用性 → spike 与人工验收覆盖。
-- **实现期再定**：`/api` 健康端点确切路径；2B 双向 Webview 消息的 requestId/会话绑定细节；WS downlink 消息形态（2A 备选）。
+- **实现期再定**：`/api` 健康端点确切路径；2B DSH client 按钮的反馈/超时表现；WS downlink 消息形态（2A 备选）。
 
 ## 11. 明确假设
 

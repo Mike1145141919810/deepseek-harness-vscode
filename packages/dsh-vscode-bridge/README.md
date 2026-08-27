@@ -28,8 +28,8 @@ DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** �
   命令设置 `recordInput: false`，不会把原始 JSON 重复写入 command lifecycle，也不会
   调用 `followup`/`steer` 唤醒空闲会话。
 
-Phase 2B 的扩展读取层与 Host 命令已经实现；DSH 页面按钮和双向 Webview 通道尚未接入，
-因此当前不能从 GUI 触发上下文注入。
+Phase 2B 的扩展读取层、Host 命令及父 Webview/扩展双向通道已经实现；DSH client
+会话按钮和响应适配尚未接入，因此当前不能从 GUI 触发上下文注入。
 
 ## 卸载
 

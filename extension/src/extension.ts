@@ -29,9 +29,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     logger,
     recordDir: context.globalStorageUri.fsPath,
   });
-  const gui = new GuiPanel(context, manager, logger);
-  const sidebar = new SidebarView(context, manager, logger);
   const editorContext = new EditorContextTracker();
+  const gui = new GuiPanel(context, manager, editorContext, logger);
+  const sidebar = new SidebarView(context, manager, editorContext, logger);
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(robot) DSH';

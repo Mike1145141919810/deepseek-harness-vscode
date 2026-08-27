@@ -27,23 +27,75 @@
   <body>
     <iframe id="dsh" title="DeepSeek Harness" src="{{DSH_URL}}"></iframe>
     <script nonce="{{NONCE}}">
-      // Phase 2A bridge: the DSH SPA (http://127.0.0.1:<port>) posts
-      // `{ type: 'dsh:openInEditor', file, line? }` when the user clicks
-      // "Open in VS Code". Only loopback iframe messages are forwarded to the
-      // extension host; the parent document still runs no other scripts.
+      // Phase 2 bridge: only the exact loopback iframe may send requests to
+      // the extension host, and host responses return to that exact origin.
       const vscode = acquireVsCodeApi();
       const dshFrame = document.getElementById('dsh');
+      const dshOrigin = new URL(dshFrame.src).origin;
+      const validOpaqueId = (value, maxLength) =>
+        typeof value === 'string' &&
+        value.length > 0 &&
+        value.length <= maxLength &&
+        value.trim() === value &&
+        !/[\0\r\n]/u.test(value);
       window.addEventListener('message', (event) => {
-        if (event.source !== dshFrame.contentWindow) return;
-        if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(event.origin)) return;
         const data = event.data;
-        if (!data || data.type !== 'dsh:openInEditor' || typeof data.file !== 'string') return;
-        vscode.postMessage({
-          type: 'dsh.openInEditor',
-          file: data.file,
-          line: typeof data.line === 'number' ? data.line : undefined,
-          character: typeof data.character === 'number' ? data.character : undefined,
-        });
+        if (event.source === dshFrame.contentWindow) {
+          if (event.origin !== dshOrigin || !data) return;
+          if (data.type === 'dsh:openInEditor' && typeof data.file === 'string') {
+            vscode.postMessage({
+              type: 'dsh.openInEditor',
+              file: data.file,
+              line: typeof data.line === 'number' ? data.line : undefined,
+              character: typeof data.character === 'number' ? data.character : undefined,
+            });
+            return;
+          }
+          if (
+            data.type === 'dsh:requestEditorContext' &&
+            validOpaqueId(data.requestId, 128) &&
+            validOpaqueId(data.sessionId, 512)
+          ) {
+            vscode.postMessage({
+              type: 'dsh.requestEditorContext',
+              requestId: data.requestId,
+              sessionId: data.sessionId,
+            });
+          }
+          return;
+        }
+
+        // VS Code host -> parent webview -> exact DSH iframe origin.
+        if (
+          !data ||
+          data.type !== 'dsh.editorContext' ||
+          !validOpaqueId(data.requestId, 128) ||
+          !validOpaqueId(data.sessionId, 512)
+        ) return;
+        if (data.ok === true && data.context && typeof data.context === 'object') {
+          dshFrame.contentWindow.postMessage({
+            type: 'dsh:editorContext',
+            requestId: data.requestId,
+            sessionId: data.sessionId,
+            ok: true,
+            context: data.context,
+          }, dshOrigin);
+          return;
+        }
+        if (
+          data.ok === false &&
+          data.error &&
+          typeof data.error.code === 'string' &&
+          typeof data.error.message === 'string'
+        ) {
+          dshFrame.contentWindow.postMessage({
+            type: 'dsh:editorContext',
+            requestId: data.requestId,
+            sessionId: data.sessionId,
+            ok: false,
+            error: { code: data.error.code, message: data.error.message },
+          }, dshOrigin);
+        }
       });
     </script>
   </body>

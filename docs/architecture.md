@@ -76,7 +76,7 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - **DSH 客户端插件**：`packages/dsh-vscode-bridge` 注册 `conversation.chat.turnTail` chain 条目（`priority: -1`，先于 stock `ProducedFiles`），复用 `@deepseek-ai/dsh-client-ui-deliverables/client` 的 `ProducedFiles` 与 `producedForClosing`，在产物行下追加 “Open in VS Code” 按钮。相对路径用 `resolveWorkspacePath(cwd, path)` 转绝对路径。
 - **安装与分发**：构建时把 `packages/dsh-vscode-bridge` 的运行文件复制进 VSIX；`DSH: Install VS Code Bridge` 经模态确认后调用 `dsh plugin --profile web add -w <bundled-path>`，确认依赖已落盘后再幂等写入 loader 条目。修改 `cordis.patch.yml` 前保留备份，结束时必须重新检测为 `installed`。`DSH: Check Installation` 会分别报告依赖、模块和 loader 状态。
 - **验收（2026-08-25）**：真实 `dsh web` 返回 `__DSH_BOOT__` 含 `dsh-vscode-bridge` 且 `/plugins/dsh-vscode-bridge/client.js` 200；VS Code smoke 的 `dsh.openInEditor` 用例通过；一键安装后端在隔离 `DSH_HOME` 中真实调用 DSH/pnpm，依赖、备份、loader、最终状态和清理全部通过。真实 GUI 内点击按钮仍待肉眼复核。
-- **未实现（Phase 2 剩余）**：2B 双向 Webview 通道与会话按钮；2C diff 只读预览；2D 写回工具（需先过设计门槛）。
+- **未实现（Phase 2 剩余）**：2B DSH client 请求/响应适配与会话按钮；2C diff 只读预览；2D 写回工具（需先过设计门槛）。
 
 ## Phase 2B 实施记录：编辑器上下文（读取层与 Host 注入已完成，通道待接）
 
@@ -84,7 +84,8 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - **有界 DTO**：`src/editor-context.ts` 输出版本化 JSON（本地路径、file URI、语言、documentVersion、dirty、1-based 光标/选区）；选区最多 16,384 UTF-16 code units，并携带 `truncated`。内部命令 `dsh.getEditorContext` 是后续 Webview handler 的读取 seam，未贡献到命令面板。
 - **正式 Host 注入点**：bridge 注册 `/vscode-context <editor-context-json>`，设置 `recordInput: false`，严格拒绝未知字段、错版本、非绝对路径、非 file URI、非法坐标与超限文本；合法输入构造成 `source.kind='plugin'`、`form='snapshot'` 的 UserMessage，并调用 `invocation.agent.inject()`。不调用 `followup`/`steer`，因此不会唤醒空闲会话。
 - **链接安装兼容**：Web profile 使用 `link:` 指向 bridge 的真实目录，Host 入口不能裸导入只存在于 DSH 分发目录内的包。bridge 按 DSH `UserMessage` 公共形状本地构造 UUID、role 与深冻结消息，避免 realpath 模块解析失败；真实 `dsh web` 集成测试已验证插件树可加载。
-- **剩余链路**：DSH 会话按钮 → 带 requestId/sessionId 的 iframe 请求 → 父 Webview 校验 loopback source/origin → 扩展读取 → 精确 origin 下发 → client 对点击时的会话调用 `SessionFace.command`。该通道接通前不在 README 声称 2B 可用。
+- **双向父页面通道**：`media/panel.html` 只接受 `event.source === iframe.contentWindow` 且 `event.origin === new URL(iframe.src).origin` 的上行；`dsh:requestEditorContext` 转为 Host 消息后，由 Panel/Sidebar 共用 `webview-bridge-vscode.ts` 读取上下文并生成结构化成功/错误响应，再只向精确 `dshOrigin` 下发 `dsh:editorContext`，禁止 wildcard target。requestId 与点击时 sessionId 全程原样关联并做长度/控制字符校验。
+- **剩余链路**：DSH client 会话按钮与响应监听 → 发起 requestId/sessionId 请求 → 收到成功上下文后对点击时的会话调用 `SessionFace.command`，并展示错误/超时状态。该 client 适配接通前不在 README 声称 2B 可用。
 
 ## 开发与测试注意事项
 

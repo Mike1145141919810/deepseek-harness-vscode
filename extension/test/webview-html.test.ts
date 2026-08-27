@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { escapeHtmlAttribute, newNonce, renderIframeHtml, renderNonceTemplate, renderReconnectHtml } from '../src/webview-html';
 
 const iframeTemplate =
@@ -46,5 +48,16 @@ describe('webview-html', () => {
   it('produces unique nonces and escapes attribute values', () => {
     assert.notEqual(newNonce(), newNonce());
     assert.equal(escapeHtmlAttribute('a"<&>'), 'a&quot;&lt;&amp;&gt;');
+  });
+
+  it('pins Phase 2B downlink messages to the exact iframe origin', () => {
+    const panel = fs.readFileSync(path.resolve(__dirname, '..', 'media', 'panel.html'), 'utf8');
+    assert.match(panel, /const dshOrigin = new URL\(dshFrame\.src\)\.origin/);
+    assert.match(panel, /event\.source === dshFrame\.contentWindow/);
+    assert.match(panel, /event\.origin !== dshOrigin/);
+    assert.match(panel, /type: 'dsh\.requestEditorContext'/);
+    assert.match(panel, /type: 'dsh:editorContext'/);
+    assert.match(panel, /\}, dshOrigin\);/);
+    assert.ok(!panel.includes(", '*'"), 'parent webview must not use wildcard postMessage targets');
   });
 });

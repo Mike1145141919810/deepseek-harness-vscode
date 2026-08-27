@@ -6,10 +6,11 @@
  *   ready    -> iframe (re-rendered automatically on every new port)
  */
 import * as vscode from 'vscode';
-import { openInEditorFromMessage } from './editor-bridge-vscode';
+import { EditorContextTracker } from './editor-context-vscode';
 import { readWebviewTemplate, seedWorkspaceFolders } from './gui-common';
 import { ServerManager } from './server-manager';
 import { LoggerLike } from './types';
+import { handleDshWebviewMessage } from './webview-bridge-vscode';
 import { newNonce, renderIframeHtml, renderNonceTemplate } from './webview-html';
 
 const VIEW_ID = 'dsh.sidebarView';
@@ -24,6 +25,7 @@ export class SidebarView implements vscode.WebviewViewProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly manager: ServerManager,
+    private readonly editorContext: EditorContextTracker,
     private readonly logger: LoggerLike,
   ) {
     this.resolutionPromise = new Promise<void>((resolve) => {
@@ -74,19 +76,7 @@ export class SidebarView implements vscode.WebviewViewProvider {
     };
     view.webview.onDidReceiveMessage((message: { type?: string }) => {
       if (message?.type === 'dsh.open' || message?.type === 'dsh.retry') void this.open();
-      if (message?.type === 'dsh.openInEditor') {
-        const file = (message as { file?: unknown }).file;
-        this.logger.log(`open in editor requested${typeof file === 'string' ? `: ${file}` : ''}`);
-        void openInEditorFromMessage(message)
-          .then(() => {
-            if (typeof file === 'string') this.logger.log(`opened in editor: ${file}`);
-          })
-          .catch((error) => {
-            const detail = String(error instanceof Error ? error.message : error);
-            this.logger.log(`open in editor failed: ${detail}`);
-            void vscode.window.showWarningMessage(`DeepSeek Harness: ${detail}`);
-          });
-      }
+      handleDshWebviewMessage(message, view.webview, this.editorContext, this.logger);
     });
 
     const url = this.pendingUrl ?? this.manager.getUrl();
