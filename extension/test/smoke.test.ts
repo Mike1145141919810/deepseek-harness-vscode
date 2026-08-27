@@ -20,6 +20,18 @@ interface Api {
   whenSidebarResolved(): Promise<void>;
 }
 
+interface EditorContextSnapshot {
+  file: string;
+  languageId: string;
+  cursor: { line: number; character: number };
+  selection?: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+    text: string;
+    truncated: boolean;
+  };
+}
+
 async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, intervalMs: number): Promise<T | undefined> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -94,6 +106,49 @@ suite('DSH extension smoke', () => {
       // Best effort: close the editor. The temp directory is left for the OS
       // to reap — Windows can hold the file handle briefly after close, and a
       // failing rmSync would mask the actual openInEditor assertions.
+      if (vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() === file.toLowerCase()) {
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      }
+    }
+  });
+
+  test('dsh.getEditorContext reads the selected text after focus leaves the editor', async function () {
+    this.timeout(60000);
+
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, 'extension should be installed in the dev host');
+    await extension!.activate();
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-context-smoke-'));
+    const file = path.join(dir, 'context.ts');
+    fs.writeFileSync(file, 'const first = 1;\nconst second = 2;\n');
+    const panel = vscode.window.createWebviewPanel(
+      'dsh.contextSmoke',
+      'DSH context smoke',
+      vscode.ViewColumn.One,
+      {},
+    );
+    try {
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+      const editor = await vscode.window.showTextDocument(document, vscode.ViewColumn.One);
+      editor.selection = new vscode.Selection(1, 6, 1, 12);
+
+      // A webview is the important boundary: Phase 2B requests originate after
+      // DSH has focus, when activeTextEditor may no longer identify the source.
+      panel.reveal(vscode.ViewColumn.One, false);
+      const snapshot = await vscode.commands.executeCommand<EditorContextSnapshot>('dsh.getEditorContext');
+      assert.ok(snapshot, 'the last local-file editor should remain available');
+      assert.equal(snapshot!.file.toLowerCase(), file.toLowerCase());
+      assert.equal(snapshot!.languageId, 'typescript');
+      assert.deepEqual(snapshot!.cursor, { line: 2, character: 13 });
+      assert.deepEqual(snapshot!.selection, {
+        start: { line: 2, character: 7 },
+        end: { line: 2, character: 13 },
+        text: 'second',
+        truncated: false,
+      });
+    } finally {
+      panel.dispose();
       if (vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() === file.toLowerCase()) {
         await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
       }

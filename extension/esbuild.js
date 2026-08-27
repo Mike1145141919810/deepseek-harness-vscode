@@ -16,7 +16,10 @@ const bridgeFiles = [
   'package.json',
   'README.md',
   path.join('lib', 'index.js'),
+  path.join('lib', 'index.d.ts'),
   path.join('lib', 'client.js'),
+  path.join('lib', 'editor-context.js'),
+  path.join('lib', 'editor-context.d.ts'),
 ];
 
 const base = {
@@ -36,7 +39,7 @@ function copyBridgePackage() {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.copyFileSync(sourcePath, outputPath);
   }
-  console.log(`esbuild: copied Phase 2A bridge to ${path.relative(__dirname, bridgeOutputDir)}`);
+  console.log(`esbuild: copied DSH bridge to ${path.relative(__dirname, bridgeOutputDir)}`);
 }
 
 async function main() {

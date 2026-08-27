@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { describeBridgeInstallation, detectBridgeInstallation } from './bridge-installation';
 import { installBundledBridge } from './bridge-installer';
 import { openInEditorFromMessage } from './editor-bridge-vscode';
+import { EditorContextSnapshot } from './editor-context';
+import { EditorContextTracker } from './editor-context-vscode';
 import { GuiPanel } from './gui-panel';
 import { buildHeadlessInvocation } from './headless';
 import { Logger } from './logger';
@@ -14,6 +16,8 @@ export interface DshExtensionApi {
   manager: ServerManager;
   getServerUrl(): string | undefined;
   getSettings(): DshSettings;
+  /** Last open local-file editor, retained while focus is inside a webview. */
+  getEditorContext(): EditorContextSnapshot | undefined;
   /** Resolves once VS Code resolves the sidebar WebviewView. */
   whenSidebarResolved(): Promise<void>;
 }
@@ -27,6 +31,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
   });
   const gui = new GuiPanel(context, manager, logger);
   const sidebar = new SidebarView(context, manager, logger);
+  const editorContext = new EditorContextTracker();
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(robot) DSH';
@@ -185,9 +190,13 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     // Programmatic entry point used by the Phase 2A webview bridge and by
     // automated acceptance. Not contributed to the Command Palette.
     vscode.commands.registerCommand('dsh.openInEditor', (message: unknown) => openInEditorFromMessage(message)),
+    // Phase 2B read seam. Kept internal until the request/response webview
+    // bridge is connected in the next slice.
+    vscode.commands.registerCommand('dsh.getEditorContext', () => editorContext.getSnapshot()),
     vscode.window.registerWebviewViewProvider('dsh.sidebarView', sidebar, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
+    editorContext,
     status,
   );
   logger.log('sidebar WebviewViewProvider registered for dsh.sidebarView');
@@ -209,6 +218,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     manager,
     getServerUrl: () => manager.getUrl(),
     getSettings,
+    getEditorContext: () => editorContext.getSnapshot(),
     whenSidebarResolved: () => sidebar.whenResolved(),
   };
 }

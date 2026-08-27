@@ -2,7 +2,7 @@
 
 > 本文档用于验证 DeepSeek Harness VS Code 扩展在当前机器上可安装、可激活、可运行，并记录验证结果。任何一次发版/大改动后按本清单复验。
 
-## 环境（2026-08-25 实测基线）
+## 环境（2026-08-27 实测基线）
 
 - VS Code：1.123.0（桌面版，本地扩展宿主）
 - dsh：全局安装 `@deepseek-ai/dsh@0.1.1-rc.2`（与 `dsh.pinnedVersion` 一致），空 `dsh.binPath` 自动发现
@@ -27,7 +27,8 @@ npm test
   - `[stale] cleared stale dsh instance record ...`
   - `dsh ready at http://127.0.0.1:<port> (pid=... instance=...)`
   - `step: process count returns to baseline`
-- 结尾：`All 10 test file(s) passed.`（53 个测试全绿：51 个纯单元测试 + 2 个真实 DSH 集成测试）
+- `bridge-editor-context.test` 验证 Host 入口无需外部模块解析即可加载，`/vscode-context` 严格拒绝畸形/超限输入，且只调用 `agent.inject`
+- 结尾：`All 12 test file(s) passed.`（67 个测试全绿：65 个纯单元测试 + 2 个真实 DSH 集成测试）
 
 > 真实 DSH 集成测试会写入隔离/用户 `DSH_HOME` 并查询进程；受限沙箱中应单独在沙箱外运行 `node --test dist-test/server-manager.integration.test.js`。
 
@@ -38,10 +39,11 @@ cd D:\michael_codes\dsh-vscode\extension
 npm run test:smoke
 ```
 
-**通过标准**：`3 passing`，包含：
+**通过标准**：`4 passing`，包含：
 1. 激活 → `dsh.open`（panel）→ 服务 HTTP 200 → `dsh.stopServer`
 2. `dsh.openInEditor` 打开临时文件并定位到指定行/列（Phase 2A 扩展侧验收）
-3. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
+3. Webview 取得焦点后，`dsh.getEditorContext` 仍能读取最后一个本地文件编辑器的选区（Phase 2B 读取层）
+4. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
 
 > 本机运行 smoke 前需要清掉 `ELECTRON_RUN_AS_NODE`（当前会话被扩展宿主置为 `1`，会让 Code.exe 拒绝 VS Code CLI 参数）：`$env:ELECTRON_RUN_AS_NODE=$null; npm run test:smoke`。
 

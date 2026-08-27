@@ -1,7 +1,7 @@
 # dsh-vscode-bridge
 
-DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** 按钮，通过
-`window.parent.postMessage` 把文件路径（及可选行号）交给 VS Code 扩展打开。
+DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** 按钮，并提供
+非唤醒的 `/vscode-context` Host 命令，用于注入用户显式共享的编辑器上下文。
 
 ## 安装
 
@@ -23,6 +23,13 @@ DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** �
 - 点击后向父窗口发送 `{ type: 'dsh:openInEditor', file: <absolute path> }`。
 - VS Code 扩展 `media/panel.html` 的 nonce 脚本校验消息来源为 `127.0.0.1`，
   转发为 `dsh.openInEditor`；扩展宿主调用 `showTextDocument` 打开文件。
+- `lib/index.js`：注册 `/vscode-context <json>`；`lib/editor-context.js` 严格校验
+  版本化上下文，将其构造成 `plugin/snapshot` UserMessage 后调用 `agent.inject()`。
+  命令设置 `recordInput: false`，不会把原始 JSON 重复写入 command lifecycle，也不会
+  调用 `followup`/`steer` 唤醒空闲会话。
+
+Phase 2B 的扩展读取层与 Host 命令已经实现；DSH 页面按钮和双向 Webview 通道尚未接入，
+因此当前不能从 GUI 触发上下文注入。
 
 ## 卸载
 
