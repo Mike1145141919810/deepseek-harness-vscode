@@ -15,6 +15,8 @@ window.__ModuleLoader__.load({
     const zh = {
       "openInVSCode": "在 VS Code 中打开",
       "openInVSCodeFor": "在 VS Code 中打开 {name}",
+      "previewDiffInVSCode": "在 VS Code 中预览变更",
+      "previewDiffInVSCodeFor": "在 VS Code 中预览 {name} 的变更",
       "shareEditorContext": "共享编辑器上下文",
       "sharingEditorContext": "正在读取编辑器…",
       "editorSelectionShared": "已共享选区",
@@ -24,6 +26,8 @@ window.__ModuleLoader__.load({
     const en = {
       "openInVSCode": "Open in VS Code",
       "openInVSCodeFor": "Open {name} in VS Code",
+      "previewDiffInVSCode": "Preview changes in VS Code",
+      "previewDiffInVSCodeFor": "Preview changes to {name} in VS Code",
       "shareEditorContext": "Share editor context",
       "sharingEditorContext": "Reading editor…",
       "editorSelectionShared": "Selection shared",
@@ -33,6 +37,7 @@ window.__ModuleLoader__.load({
 
     const EDITOR_CONTEXT_REQUEST_TYPE = "dsh:requestEditorContext";
     const EDITOR_CONTEXT_RESPONSE_TYPE = "dsh:editorContext";
+    const DIFF_PREVIEW_TYPE = "dsh:previewDiff";
     const EDITOR_CONTEXT_REQUEST_TIMEOUT_MS = 10_000;
     const MAX_REQUEST_ID_CHARS = 128;
     const MAX_SESSION_ID_CHARS = 512;
@@ -292,12 +297,107 @@ window.__ModuleLoader__.load({
       return at === -1 ? filePath : filePath.slice(at + 1);
     }
 
+    function isFileDiff(value) {
+      return isRecord(value) &&
+        typeof value.path === "string" &&
+        value.path.length > 0 &&
+        (value.oldText === null || typeof value.oldText === "string") &&
+        typeof value.newText === "string";
+    }
+
+    /**
+     * Turn-local applied diff accumulator. Result views are authoritative: they
+     * carry the persisted before/after hunks produced after the mutation
+     * actually succeeds, unlike the call-time intent.
+     */
+    const diffPreviewsDefinition = {
+      kind: "dsh-vscode-diff-previews",
+      match: (event) => {
+        if (event.type === "turn/start") return {
+          id: String(event.data.turn),
+          role: "start",
+        };
+        if (event.type === "tool/result" && _runtime.isAppendSurfaceEvent(event)) return {
+          id: String(event.data.turn),
+          role: "update",
+        };
+        return null;
+      },
+      start: (_context, match) => {
+        if (match.event.type !== "turn/start") {
+          throw new Error("dsh-vscode diff previews require turn/start");
+        }
+        return { turn: match.event.data.turn, changes: [] };
+      },
+      update: (context, match) => {
+        if (match.event.type !== "tool/result") return context.state;
+        if (match.event.data.message.content[0]?.isError === true) return context.state;
+        const view = match.view?.for === "result" ? match.view.view : null;
+        if (!isRecord(view) || view.card !== "diff" || !Array.isArray(view.diffs)) {
+          return context.state;
+        }
+        const additions = view.diffs.filter(isFileDiff).map((diff) => ({
+          seq: match.event.seq,
+          path: diff.path,
+          oldText: diff.oldText,
+          newText: diff.newText,
+        }));
+        return additions.length === 0 ? context.state : {
+          ...context.state,
+          changes: [...context.state.changes, ...additions],
+        };
+      },
+      buildLocationData: (context, scope) =>
+        scope !== "turn" || context.state === undefined
+          ? null
+          : {
+              kind: "turn",
+              turn: context.state.turn,
+              key: "dshVscodeDiffPreviews",
+              value: { changes: context.state.changes },
+            },
+    };
+
+    /** Group applied hunks by file and exclude mutations after the closing message. */
+    function diffPreviewsForClosing(data, seq = Number.POSITIVE_INFINITY) {
+      if (!isRecord(data) || !Array.isArray(data.changes)) return [];
+      const byPath = new Map();
+      for (const change of data.changes) {
+        if (
+          !isRecord(change) ||
+          typeof change.seq !== "number" ||
+          change.seq > seq ||
+          !isFileDiff(change)
+        ) continue;
+        let preview = byPath.get(change.path);
+        if (preview === undefined) {
+          preview = { path: change.path, diffs: [] };
+          byPath.set(change.path, preview);
+        }
+        preview.diffs.push({ oldText: change.oldText, newText: change.newText });
+      }
+      return [...byPath.values()];
+    }
+
+    /** Send one strictly shaped, read-only diff request to the embedding parent. */
+    function postDiffPreview(parentWindow, cwd, preview) {
+      parentWindow.postMessage({
+        type: DIFF_PREVIEW_TYPE,
+        file: _runtime.resolveWorkspacePath(cwd, preview.path),
+        diffs: preview.diffs.map((diff) => ({
+          oldText: diff.oldText,
+          newText: diff.newText,
+        })),
+      }, "*");
+    }
+
     /** Required services on the client root context. */
     const inject = [
       "slots",
       "locale",
       "connection",
-      "sessions"
+      "sessions",
+      "conversationEvents"
     ];
 
     /**
@@ -310,7 +410,12 @@ window.__ModuleLoader__.load({
         owner.turn.data.get("deliverables"),
         owner.seq,
       );
-      return paths.length === 0 ? null : paths;
+      if (paths.length === 0) return null;
+      const previews = diffPreviewsForClosing(
+        owner.turn.data.get("dshVscodeDiffPreviews"),
+        owner.seq,
+      ).filter((preview) => paths.includes(preview.path));
+      return { paths, previews };
     }
 
     /**
@@ -319,7 +424,7 @@ window.__ModuleLoader__.load({
      * the VS Code extension receives them and calls showTextDocument.
      */
     function VSCodeOpenButtons({
-      matched: paths,
+      matched: { paths, previews },
       openFile,
       isLoopback,
       useHostDescription,
@@ -337,6 +442,9 @@ window.__ModuleLoader__.load({
           { type: "dsh:openInEditor", file: absolute(filePath) },
           "*",
         );
+      };
+      const previewInVSCode = (preview) => {
+        postDiffPreview(window.parent, cwd, preview);
       };
 
       return react.createElement(
@@ -375,6 +483,30 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+        embedded && previews.length > 0 &&
+          react.createElement(
+            "div",
+            { className: "dsh-vscode-bridge-diff-actions" },
+            react.createElement(
+              "span",
+              { className: "dsh-vscode-bridge-diff-label" },
+              t("previewDiffInVSCode"),
+            ),
+            previews.map((preview) =>
+              react.createElement(
+                "button",
+                {
+                  key: preview.path,
+                  type: "button",
+                  title: absolute(preview.path),
+                  "data-dsh-vscode-diff": "",
+                  "aria-label": t("previewDiffInVSCodeFor", { name: preview.path }),
+                  onClick: () => previewInVSCode(preview),
+                },
+                basename(preview.path),
+              ),
+            ),
+          ),
       );
     }
 
@@ -382,6 +514,7 @@ window.__ModuleLoader__.load({
       const connection = ctx.get("connection");
       const sessions = ctx.sessions;
       const contextRequester = createEditorContextRequester();
+      ctx.conversationEvents.register(diffPreviewsDefinition);
       ctx.effect(
         () => () => contextRequester.dispose(),
         "dsh-vscode-bridge: editor context requester",
@@ -416,6 +549,10 @@ window.__ModuleLoader__.load({
     exports.createEditorContextRequester = createEditorContextRequester;
     exports.EditorContextBridgeError = EditorContextBridgeError;
     exports.shareEditorContextWithSession = shareEditorContextWithSession;
+    exports.diffPreviewsDefinition = diffPreviewsDefinition;
+    exports.diffPreviewsForClosing = diffPreviewsForClosing;
+    exports.postDiffPreview = postDiffPreview;
+    exports.VSCodeOpenButtons = VSCodeOpenButtons;
     exports.inject = inject;
     return module.exports;
   },

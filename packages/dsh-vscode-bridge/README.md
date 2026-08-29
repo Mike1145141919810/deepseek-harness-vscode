@@ -1,7 +1,8 @@
 # dsh-vscode-bridge
 
-DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** 按钮，并提供
-非唤醒的 `/vscode-context` Host 命令，用于注入用户显式共享的编辑器上下文。
+DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** 和只读
+**在 VS Code 中预览变更** 按钮，并提供非唤醒的 `/vscode-context` Host 命令，
+用于注入用户显式共享的编辑器上下文。
 
 ## 安装
 
@@ -31,10 +32,14 @@ DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** �
   关联父 Webview 回传，并处理来源校验、结构化错误、超时与销毁清理。
 - 同一 client 插件在 `conversation.input.left` 注册显式共享按钮；取得快照后只向点击时
   绑定的会话调用 `SessionFace.command('/vscode-context <json>')`，不会改变当前输入草稿。
+- client 插件通过 `conversationEvents` 只收集成功执行后的 `tool/result` Diff 视图，按
+  关闭消息序号和文件分组 `oldText/newText` 上下文片段；点击预览按钮后发送
+  `dsh:previewDiff`。扩展严格校验大小和结构，并用内存虚拟文档打开 VS Code 内置 Diff，
+  不读取、创建或修改目标文件。
 
-Phase 2B 的代码通路已经接通；重新安装 bridge 并重启 DSH 后，可从会话输入框工具行
-显式触发。安装态真实浏览器已通过按钮点击、父响应回传与 Host 命令匹配验证；人工复验
-步骤见扩展仓库 `VERIFICATION.md`。
+Phase 2B/2C 的代码通路已经接通；重新安装 bridge 并重启 DSH 后，可从会话输入框工具行
+显式共享编辑器上下文，并从产物行打开只读 Diff。安装态真实浏览器验收和人工复验步骤见
+扩展仓库 `VERIFICATION.md`。
 
 ## 卸载
 

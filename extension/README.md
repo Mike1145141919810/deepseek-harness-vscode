@@ -46,7 +46,8 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - 多个 VS Code 窗口会复用同一 DSH 实例；附加窗口停止时只断开自身连接。
 - `DSH: Run Task (headless)` 在集成终端执行一次性任务。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
-- 安装桥接插件后，产物文件行的 **Open in VS Code** 可直接打开文件并定位行/列。
+- 安装桥接插件后，产物文件行可直接 **Open in VS Code**，也可用只读 Diff 查看
+  DSH 已持久化的变更片段；会话输入框还可显式共享当前编辑器位置或有界选区。
 
 ## 设置（`dsh.*`）
 
@@ -66,6 +67,7 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - **`dsh server did not become healthy`**：打开输出面板（`DeepSeek Harness` 通道）看子进程日志。
 - **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
 - **Open in VS Code 不可用**：执行 `DSH: Check Installation`；不是 `bridge: READY` 时运行 `DSH: Install VS Code Bridge`，然后重启 DSH。
+- **Diff 预览按钮没出现**：仅成功执行并带 Diff 结果的文件变更会显示；重装 bridge 并重启 DSH 后重试。
 - 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID，方便排查残留进程。
 
 ## 安全

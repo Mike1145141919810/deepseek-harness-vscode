@@ -27,6 +27,30 @@ interface EditorContextRequester {
 
 interface ClientExports {
   inject: string[];
+  diffPreviewsDefinition: {
+    match(event: Record<string, unknown>): { id: string; role: string } | null;
+    start(context: unknown, match: { event: Record<string, unknown> }): {
+      turn: number;
+      changes: unknown[];
+    };
+    update(
+      context: { state: { turn: number; changes: unknown[] } },
+      match: { event: Record<string, unknown>; view?: unknown },
+    ): { turn: number; changes: unknown[] };
+    buildLocationData(
+      context: { state: { turn: number; changes: unknown[] } },
+      scope: string,
+    ): unknown;
+  };
+  diffPreviewsForClosing(
+    data: unknown,
+    seq?: number,
+  ): Array<{ path: string; diffs: Array<{ oldText: string | null; newText: string }> }>;
+  postDiffPreview(
+    parentWindow: { postMessage(message: unknown, targetOrigin: string): void },
+    cwd: string | undefined,
+    preview: { path: string; diffs: Array<{ oldText: string | null; newText: string }> },
+  ): void;
   createEditorContextRequester(options: {
     windowObject: ClientWindowLike;
     parentWindow: { postMessage(message: unknown, targetOrigin: string): void };
@@ -56,7 +80,11 @@ function loadClientModule(windowObject: ClientWindowLike): ClientExports {
   return registration.factory((id) => {
     if (id === 'react') return {};
     if (id === '@deepseek-ai/dsh-client-ui-deliverables/client') return {};
-    if (id === '@deepseek-ai/dsh-client-runtime/client') return {};
+    if (id === '@deepseek-ai/dsh-client-runtime/client') return {
+      isAppendSurfaceEvent: (event: { surfaceOp?: string }) => event.surfaceOp === 'append',
+      resolveWorkspacePath: (cwd: string | undefined, file: string) =>
+        cwd === undefined ? file : `${cwd}/${file}`,
+    };
     throw new Error(`unexpected client dependency: ${id}`);
   });
 }
@@ -225,7 +253,10 @@ describe('DSH client editor-context command wiring', () => {
     assert.match(source, /slots\.inject\("conversation\.input\.left"/);
     assert.match(source, /data-dsh-vscode-context/);
     const client = loadActionClient();
-    assert.deepEqual([...client.inject], ['slots', 'locale', 'connection', 'sessions']);
+    assert.deepEqual(
+      [...client.inject],
+      ['slots', 'locale', 'connection', 'sessions', 'conversationEvents'],
+    );
     const calls: string[] = [];
     const context = {
       version: 1,
@@ -305,5 +336,117 @@ describe('DSH client editor-context command wiring', () => {
         return true;
       },
     );
+  });
+});
+
+describe('DSH client diff-preview wiring', () => {
+  it('collects only successful append-surface result diffs and publishes turn data', () => {
+    const client = loadActionClient();
+    const startEvent = { type: 'turn/start', data: { turn: 7 } };
+    const startMatch = { event: startEvent };
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(client.diffPreviewsDefinition.match(startEvent))),
+      { id: '7', role: 'start' },
+    );
+    const initial = client.diffPreviewsDefinition.start({}, startMatch);
+
+    const resultEvent = {
+      type: 'tool/result',
+      seq: 14,
+      surfaceOp: 'append',
+      data: { turn: 7, message: { content: [{ isError: false }] } },
+    };
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(client.diffPreviewsDefinition.match(resultEvent))),
+      { id: '7', role: 'update' },
+    );
+    const updated = client.diffPreviewsDefinition.update(
+      { state: initial },
+      {
+        event: resultEvent,
+        view: {
+          for: 'result',
+          view: {
+            card: 'diff',
+            diffs: [
+              { path: 'src/a.ts', oldText: 'one\n', newText: 'two\n' },
+              { path: 'src/a.ts', oldText: 'three\n', newText: 'four\n' },
+            ],
+          },
+        },
+      },
+    );
+    assert.deepEqual(JSON.parse(JSON.stringify(updated.changes)), [
+      { seq: 14, path: 'src/a.ts', oldText: 'one\n', newText: 'two\n' },
+      { seq: 14, path: 'src/a.ts', oldText: 'three\n', newText: 'four\n' },
+    ]);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(client.diffPreviewsDefinition.buildLocationData(
+        { state: updated },
+        'turn',
+      ))),
+      {
+        kind: 'turn',
+        turn: 7,
+        key: 'dshVscodeDiffPreviews',
+        value: {
+          changes: [
+            { seq: 14, path: 'src/a.ts', oldText: 'one\n', newText: 'two\n' },
+            { seq: 14, path: 'src/a.ts', oldText: 'three\n', newText: 'four\n' },
+          ],
+        },
+      },
+    );
+    assert.equal(
+      client.diffPreviewsDefinition.match({ ...resultEvent, surfaceOp: 'replace' }),
+      null,
+    );
+  });
+
+  it('groups applied hunks by file and honors the closing sequence boundary', () => {
+    const client = loadActionClient();
+    const previews = client.diffPreviewsForClosing({
+      changes: [
+        { seq: 2, path: 'src/a.ts', oldText: 'a', newText: 'b' },
+        { seq: 3, path: 'src/b.ts', oldText: null, newText: 'new' },
+        { seq: 4, path: 'src/a.ts', oldText: 'b', newText: 'c' },
+      ],
+    }, 3);
+    assert.deepEqual(JSON.parse(JSON.stringify(previews)), [
+      { path: 'src/a.ts', diffs: [{ oldText: 'a', newText: 'b' }] },
+      { path: 'src/b.ts', diffs: [{ oldText: null, newText: 'new' }] },
+    ]);
+  });
+
+  it('posts a strict read-only request with an absolute workspace path', () => {
+    const client = loadActionClient();
+    const sent: Array<{ message: unknown; targetOrigin: string }> = [];
+    client.postDiffPreview(
+      {
+        postMessage(message, targetOrigin) {
+          sent.push({ message, targetOrigin });
+        },
+      },
+      'C:\\workspace',
+      {
+        path: 'src/a.ts',
+        diffs: [{ oldText: 'before', newText: 'after' }],
+      },
+    );
+    assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{
+      message: {
+        type: 'dsh:previewDiff',
+        file: 'C:\\workspace/src/a.ts',
+        diffs: [{ oldText: 'before', newText: 'after' }],
+      },
+      targetOrigin: '*',
+    }]);
+
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '..', '..', 'packages', 'dsh-vscode-bridge', 'lib', 'client.js'),
+      'utf8',
+    );
+    assert.match(source, /data-dsh-vscode-diff/);
+    assert.match(source, /previewDiffInVSCode/);
   });
 });

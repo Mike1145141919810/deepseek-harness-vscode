@@ -94,7 +94,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 ### Phase 2 — 原生编辑器联动（`packages/dsh-vscode-bridge`，按 2A→2D 递进，每步独立验收）
 - **2A Open in Editor**：client plugin 给文件路径加按钮，`window.parent.postMessage` 发 `{type:'dsh:openInEditor', file, line}`；扩展 parent 文档 nonce 脚本收消息 → `vscode.window.showTextDocument`。
 - **2B Read editor context**：用户显式请求时，扩展读取最后一个仍打开的本地文件编辑器/主选区（不自动读全文）→ client `SessionFace.command('/vscode-context <json>')` → Host `commands.register({ recordInput: false })` → `agent.inject(UserMessage source=plugin/form=snapshot)`；`inject` 不唤醒空闲会话。读取层、Host 命令、双向通道、client 请求适配器及会话按钮接线均已实现；安装态真实浏览器已完成按钮点击、响应回传及 Host 命令匹配验证。
-- **2C Diff preview**：fs 变更只读预览（diff viewer），不落盘。
+- **2C Diff preview**：只采集成功 `tool/result` 的持久化 `FileDiff[]`，按轮次结束序号和文件分组；client 产物行显式按钮 → 精确 iframe source/origin 通道 → 扩展严格校验路径、结构和大小 → 内存虚拟文档 → VS Code `vscode.diff`。不读取、创建或修改目标文件；安装态真实浏览器已完成实际 React 按钮渲染、点击和父消息验证。
 - **2D Apply edit**：`vscode_apply_diff` 类写回工具，需先满足设计门槛：workspace trust 检查、用户确认流、单文件先行、undo 策略、非 workspace 文件拒绝——门槛不满足就停在 2C。
 - 安装机制（2A 起）：`dsh plugin --profile web add file:../packages/dsh-vscode-bridge` + `cordis.patch.yml` 插入行；postMessage 为主通道，WS downlink 仅作备选。
 
@@ -105,7 +105,8 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 
 - **Phase 1**：命令 → 预分配端口 → spawn `dsh web --host 127.0.0.1 --port N` → 探活 → iframe 加载 → 前端同源直连 `/api`+WS（协议不变）。
 - **Phase 2 出向**：host 插件工具（2D 起）→ 会话事件 → client 插件 postMessage → 扩展 → `vscode.*` API。
-- **Phase 2 入向**（2B）：DSH client 显式请求（待接入）→ iframe 双向 `postMessage`（requestId + 点击时 sessionId，父页精确 origin）→ 扩展读取编辑器状态 → 回传 client → `SessionFace.command` → Host `/vscode-context` → `agent.inject`（non-waking snapshot）。
+- **Phase 2 入向**（2B）：DSH client 显式请求 → iframe 双向 `postMessage`（requestId + 点击时 sessionId，父页精确 origin）→ 扩展读取编辑器状态 → 回传 client → `SessionFace.command` → Host `/vscode-context` → `agent.inject`（non-waking snapshot）。
+- **Phase 2C 只读预览**：成功工具结果的 `FileDiff[]` → client 按轮次/文件聚合 → 用户点击 → iframe `postMessage` → 扩展内存 URI provider → `vscode.diff`；真实工作区文件不参与读取或写入。
 
 ## 7. 边界情况与失败模式
 

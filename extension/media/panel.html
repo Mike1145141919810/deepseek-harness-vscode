@@ -52,6 +52,18 @@
             return;
           }
           if (
+            data.type === 'dsh:previewDiff' &&
+            typeof data.file === 'string' &&
+            Array.isArray(data.diffs)
+          ) {
+            vscode.postMessage({
+              type: 'dsh.previewDiff',
+              file: data.file,
+              diffs: data.diffs,
+            });
+            return;
+          }
+          if (
             data.type === 'dsh:requestEditorContext' &&
             validOpaqueId(data.requestId, 128) &&
             validOpaqueId(data.sessionId, 512)

@@ -7,6 +7,7 @@ import {
   parseEditorContextRequestMessage,
 } from './editor-context-bridge';
 import { EditorContextTracker } from './editor-context-vscode';
+import { DIFF_PREVIEW_MESSAGE_TYPE } from './diff-preview';
 import { openInEditorFromMessage } from './editor-bridge-vscode';
 import { LoggerLike } from './types';
 
@@ -91,6 +92,19 @@ export function handleDshWebviewMessage(
   }
   if (type === EDITOR_CONTEXT_REQUEST_MESSAGE_TYPE) {
     void postEditorContextResponse(message, webview, editorContext, logger);
+    return true;
+  }
+  if (type === DIFF_PREVIEW_MESSAGE_TYPE) {
+    const file = (message as { file?: unknown }).file;
+    logger.log(`diff preview requested${typeof file === 'string' ? `: ${file}` : ''}`);
+    void vscode.commands.executeCommand('dsh.previewDiff', message).then(
+      undefined,
+      (error: unknown) => {
+        const detail = String(error instanceof Error ? error.message : error);
+        logger.log(`diff preview failed: ${detail}`);
+        void vscode.window.showWarningMessage(`DeepSeek Harness: ${detail}`);
+      },
+    );
     return true;
   }
   return false;

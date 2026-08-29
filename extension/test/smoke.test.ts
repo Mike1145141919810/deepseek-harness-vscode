@@ -155,6 +155,42 @@ suite('DSH extension smoke', () => {
     }
   });
 
+  test('dsh.previewDiff opens virtual read-only documents without creating the target file', async function () {
+    this.timeout(60000);
+
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, 'extension should be installed in the dev host');
+    await extension!.activate();
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-diff-smoke-'));
+    const target = path.join(dir, 'not-created.ts');
+    try {
+      await vscode.commands.executeCommand('dsh.previewDiff', {
+        type: 'dsh.previewDiff',
+        file: target,
+        diffs: [{ oldText: 'const value = 1;\n', newText: 'const value = 2;\n' }],
+      });
+
+      const previews = vscode.window.visibleTextEditors.filter(
+        (editor) => editor.document.uri.scheme === 'dsh-diff-preview',
+      );
+      assert.equal(previews.length, 2, 'the diff editor should display two virtual documents');
+      assert.ok(
+        previews.some((editor) => editor.document.getText() === 'const value = 1;\n'),
+        'the original virtual document should contain the before text',
+      );
+      assert.ok(
+        previews.some((editor) => editor.document.getText() === 'const value = 2;\n'),
+        'the modified virtual document should contain the after text',
+      );
+      assert.equal(fs.existsSync(target), false, 'previewing must not create the named file');
+    } finally {
+      if (vscode.window.activeTextEditor?.document.uri.scheme === 'dsh-diff-preview') {
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      }
+    }
+  });
+
   test('sidebar view resolves its WebviewViewProvider when focused', async function () {
     this.timeout(60000);
 

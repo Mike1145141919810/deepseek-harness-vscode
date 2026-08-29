@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { describeBridgeInstallation, detectBridgeInstallation } from './bridge-installation';
 import { installBundledBridge } from './bridge-installer';
+import { DIFF_PREVIEW_URI_SCHEME, DiffPreviewProvider } from './diff-preview-vscode';
 import { openInEditorFromMessage } from './editor-bridge-vscode';
 import { EditorContextSnapshot } from './editor-context';
 import { EditorContextTracker } from './editor-context-vscode';
@@ -30,6 +31,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     recordDir: context.globalStorageUri.fsPath,
   });
   const editorContext = new EditorContextTracker();
+  const diffPreview = new DiffPreviewProvider();
   const gui = new GuiPanel(context, manager, editorContext, logger);
   const sidebar = new SidebarView(context, manager, editorContext, logger);
 
@@ -193,9 +195,17 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     // Phase 2B read seam. Kept internal until the request/response webview
     // bridge is connected in the next slice.
     vscode.commands.registerCommand('dsh.getEditorContext', () => editorContext.getSnapshot()),
+    // Phase 2C read-only seam. The DSH client bridge will invoke this through
+    // the parent webview after its own button is connected.
+    vscode.commands.registerCommand('dsh.previewDiff', async (message: unknown) => {
+      const preview = await diffPreview.openFromMessage(message);
+      logger.log(`diff preview opened: ${preview.file} (${preview.diffs.length} hunk(s))`);
+    }),
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_PREVIEW_URI_SCHEME, diffPreview),
     vscode.window.registerWebviewViewProvider('dsh.sidebarView', sidebar, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
+    diffPreview,
     editorContext,
     status,
   );

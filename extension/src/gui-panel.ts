@@ -1,10 +1,11 @@
 /**
  * The WebviewPanel that hosts the DSH GUI in an iframe.
  *
- * Parent document: a single nonce-gated script bridges `dsh:openInEditor`
- * and Phase 2B editor-context request/response messages, plus a CSP that only
- * permits loopback frames. When the server dies, the panel switches to a
- * reconnect page; when the server comes back the iframe is re-rendered.
+ * Parent document: a single nonce-gated script bridges Open in Editor,
+ * Phase 2B editor-context request/response, and Phase 2C diff-preview
+ * messages, plus a CSP that only permits loopback frames. When the server
+ * dies, the panel switches to a reconnect page; when the server comes back
+ * the iframe is re-rendered.
  */
 import * as vscode from 'vscode';
 import { EditorContextTracker } from './editor-context-vscode';

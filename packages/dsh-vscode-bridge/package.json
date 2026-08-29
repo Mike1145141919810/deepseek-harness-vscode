@@ -1,7 +1,7 @@
 {
   "name": "dsh-vscode-bridge",
   "version": "0.1.0",
-  "description": "DSH web plugin for opening produced files in VS Code and injecting explicitly shared editor context.",
+  "description": "DSH web plugin for opening files, previewing read-only diffs, and explicitly sharing editor context with VS Code.",
   "private": true,
   "type": "module",
   "main": "lib/index.js",

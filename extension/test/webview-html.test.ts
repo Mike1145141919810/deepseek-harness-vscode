@@ -60,4 +60,19 @@ describe('webview-html', () => {
     assert.match(panel, /\}, dshOrigin\);/);
     assert.ok(!panel.includes(", '*'"), 'parent webview must not use wildcard postMessage targets');
   });
+
+  it('forwards Phase 2C diff previews only from the pinned iframe branch', () => {
+    const panel = fs.readFileSync(path.resolve(__dirname, '..', 'media', 'panel.html'), 'utf8');
+    const sourceGuard = panel.indexOf('event.source === dshFrame.contentWindow');
+    const previewInput = panel.indexOf("data.type === 'dsh:previewDiff'");
+    const previewOutput = panel.indexOf("type: 'dsh.previewDiff'");
+    const hostDownlink = panel.indexOf('// VS Code host -> parent webview');
+
+    assert.ok(sourceGuard >= 0);
+    assert.ok(previewInput > sourceGuard, 'preview input must be inside the iframe-source branch');
+    assert.ok(previewOutput > previewInput, 'preview output must follow its input guard');
+    assert.ok(previewOutput < hostDownlink, 'preview forwarding must not accept host-origin messages');
+    assert.match(panel, /typeof data\.file === 'string'/);
+    assert.match(panel, /Array\.isArray\(data\.diffs\)/);
+  });
 });

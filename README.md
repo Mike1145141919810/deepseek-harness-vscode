@@ -54,6 +54,8 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - 服务中途崩溃时自动重启一次，面板/侧边栏切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
 - `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
 - **Phase 2A（原生编辑器联动）**：执行 `DSH: Install VS Code Bridge` 后，DSH 的“产物”文件行会显示 **Open in VS Code** 按钮；点击后通过 `postMessage` 桥接到 VS Code 扩展，用 `showTextDocument` 在编辑器里打开对应文件（支持可选行号）。
+- **Phase 2B（显式上下文共享）**：会话输入框工具行可把最后一个本地编辑器的光标或有界选区显式注入当前 DSH 会话；无选区时不会读取全文，也不会唤醒空闲会话。
+- **Phase 2C（只读 Diff）**：成功的文件变更会显示 **在 VS Code 中预览变更**；扩展只用 DSH 已持久化的上下文片段创建内存虚拟文档，不读取或写入目标文件。
 
 ## 设置（`dsh.*`）
 
@@ -73,6 +75,7 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - **`dsh server did not become healthy`**：打开输出面板（`DeepSeek Harness` 通道）看子进程日志。
 - **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
 - **点了 Open in VS Code 没反应**：先执行 `DSH: Check Installation`，确认输出含 `bridge: READY`；否则运行 `DSH: Install VS Code Bridge`。仍无反应时执行 `Developer: Reload Window`，并查看输出通道是否出现 `open in editor requested` / `opened in editor` / `open in editor failed`。
+- **Diff 预览按钮没出现**：只有成功执行并带 Diff 结果的文件写入/编辑会显示；重新安装 bridge、重启 DSH，并确认输出通道没有 `diff preview failed`。
 - 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID；实例记录持久化到 globalStorage，下次启动会做 stale 检测（旧 PID 已死/端口失效则清记录并告警）。
 
 ## 安全
@@ -97,6 +100,8 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - [ ] `DSH: Run Task (headless)` 在集成终端执行一次性任务
 - [x] Phase 2A 桥接包随 VSIX 发布，一键安装后端在隔离 `DSH_HOME` 真实验证通过
 - [ ] Phase 2A：安装 `dsh-vscode-bridge` 插件后，DSH 产物文件行出现 **Open in VS Code** 按钮，点击在编辑器打开对应文件
+- [x] Phase 2B：安装态真实 GUI 显式共享选区，精确会话命令匹配
+- [x] Phase 2C：安装态真实 GUI 点击 Diff 预览按钮，VS Code 打开只读虚拟比较视图
 - [x] VSIX 打包成功（`npm run package`）
 
 ## License

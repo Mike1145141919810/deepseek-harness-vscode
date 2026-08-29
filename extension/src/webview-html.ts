@@ -2,9 +2,9 @@
  * Pure webview HTML rendering helpers (no `vscode` import).
  *
  * Security posture: the iframe parent document runs exactly one nonce-gated
- * script — the Phase 2A bridge that forwards `dsh:openInEditor` messages from
- * the loopback iframe to the extension host. Reconnect and sidebar-empty pages
- * also carry a single nonce-gated script for their buttons.
+ * script — the Phase 2 bridge that forwards editor and read-only diff messages
+ * from the loopback iframe to the extension host. Reconnect and sidebar-empty
+ * pages also carry a single nonce-gated script for their buttons.
  */
 import * as crypto from 'node:crypto';
 
