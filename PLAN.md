@@ -93,7 +93,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 
 ### Phase 2 — 原生编辑器联动（`packages/dsh-vscode-bridge`，按 2A→2D 递进，每步独立验收）
 - **2A Open in Editor**：client plugin 给文件路径加按钮，`window.parent.postMessage` 发 `{type:'dsh:openInEditor', file, line}`；扩展 parent 文档 nonce 脚本收消息 → `vscode.window.showTextDocument`。
-- **2B Read editor context**：用户显式请求时，扩展读取最后一个仍打开的本地文件编辑器/主选区（不自动读全文）→ client `SessionFace.command('/vscode-context <json>')` → Host `commands.register({ recordInput: false })` → `agent.inject(UserMessage source=plugin/form=snapshot)`；`inject` 不唤醒空闲会话。读取层、Host 命令及父 Webview/扩展双向通道已实现，DSH client 会话按钮与响应适配待接入。
+- **2B Read editor context**：用户显式请求时，扩展读取最后一个仍打开的本地文件编辑器/主选区（不自动读全文）→ client `SessionFace.command('/vscode-context <json>')` → Host `commands.register({ recordInput: false })` → `agent.inject(UserMessage source=plugin/form=snapshot)`；`inject` 不唤醒空闲会话。读取层、Host 命令、双向通道、client 请求适配器及会话按钮接线均已实现；安装态真实浏览器已完成按钮点击、响应回传及 Host 命令匹配验证。
 - **2C Diff preview**：fs 变更只读预览（diff viewer），不落盘。
 - **2D Apply edit**：`vscode_apply_diff` 类写回工具，需先满足设计门槛：workspace trust 检查、用户确认流、单文件先行、undo 策略、非 workspace 文件拒绝——门槛不满足就停在 2C。
 - 安装机制（2A 起）：`dsh plugin --profile web add file:../packages/dsh-vscode-bridge` + `cordis.patch.yml` 插入行；postMessage 为主通道，WS downlink 仅作备选。

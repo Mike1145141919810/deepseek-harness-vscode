@@ -27,9 +27,14 @@ DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** �
   版本化上下文，将其构造成 `plugin/snapshot` UserMessage 后调用 `agent.inject()`。
   命令设置 `recordInput: false`，不会把原始 JSON 重复写入 command lifecycle，也不会
   调用 `followup`/`steer` 唤醒空闲会话。
+- `lib/client.js` 的请求适配器为每次显式共享生成 requestId，以 requestId + sessionId
+  关联父 Webview 回传，并处理来源校验、结构化错误、超时与销毁清理。
+- 同一 client 插件在 `conversation.input.left` 注册显式共享按钮；取得快照后只向点击时
+  绑定的会话调用 `SessionFace.command('/vscode-context <json>')`，不会改变当前输入草稿。
 
-Phase 2B 的扩展读取层、Host 命令及父 Webview/扩展双向通道已经实现；DSH client
-会话按钮和响应适配尚未接入，因此当前不能从 GUI 触发上下文注入。
+Phase 2B 的代码通路已经接通；重新安装 bridge 并重启 DSH 后，可从会话输入框工具行
+显式触发。安装态真实浏览器已通过按钮点击、父响应回传与 Host 命令匹配验证；人工复验
+步骤见扩展仓库 `VERIFICATION.md`。
 
 ## 卸载
 

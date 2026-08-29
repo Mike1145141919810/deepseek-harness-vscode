@@ -8,6 +8,7 @@ import {
   addBridgeLoaderEntry,
   buildProcessInvocation,
   installBundledBridge,
+  toDshPluginPathArgument,
 } from '../src/bridge-installer';
 import type { ResolvedCommand } from '../src/server-manager';
 
@@ -41,6 +42,15 @@ describe('buildProcessInvocation', () => {
     assert.deepEqual(invocation.args.slice(0, 3), ['/d', '/s', '/c']);
     assert.match(invocation.args[3], /^"C:\/Program Files\/dsh\.cmd" /);
     assert.match(invocation.args[3], /"C:\/Users\/Test User\/bridge"$/);
+  });
+
+  it('preserves literal quotes for DSH\'s inner Windows pnpm shell', () => {
+    assert.equal(
+      toDshPluginPathArgument('C:\\Users\\Test User\\bridge', 'win32'),
+      '"C:/Users/Test User/bridge"',
+    );
+    assert.equal(toDshPluginPathArgument('D:\\plugins\\bridge', 'win32'), 'D:/plugins/bridge');
+    assert.equal(toDshPluginPathArgument('/home/test user/bridge', 'linux'), '/home/test user/bridge');
   });
 });
 

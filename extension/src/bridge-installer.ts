@@ -161,7 +161,14 @@ export async function installBundledBridge(
 ): Promise<InstallBundledBridgeResult> {
   const bundledBridgeDir = validateBundledBridgeDir(options.bundledBridgeDir);
   const profileDir = options.profileDir ?? resolveDshWebProfileDir();
-  const pluginArgs = ['plugin', '--profile', 'web', 'add', '-w', toDshPath(bundledBridgeDir)];
+  const pluginArgs = [
+    'plugin',
+    '--profile',
+    'web',
+    'add',
+    '-w',
+    toDshPluginPathArgument(bundledBridgeDir),
+  ];
   const output = await (options.run ?? runResolvedCommand)(options.resolvedCommand, pluginArgs);
 
   const dependencyStatus = detectBridgeInstallation(profileDir);
@@ -199,8 +206,18 @@ function validateBundledBridgeDir(input: string): string {
   return directory;
 }
 
-function toDshPath(input: string): string {
-  return process.platform === 'win32' ? input.replace(/\\/g, '/') : input;
+/**
+ * DSH 0.1.1 runs pnpm through `shell: true` on Windows. Literal quotes must
+ * survive into DSH's argv so its inner cmd.exe does not split a local path
+ * such as `C:/Users/Test User/...` before pnpm receives it.
+ */
+export function toDshPluginPathArgument(
+  input: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'win32') return input;
+  const normalized = input.replace(/\\/g, '/');
+  return /[\s&|<>^]/u.test(normalized) ? `"${normalized}"` : normalized;
 }
 
 function stripWrappingQuotes(input: string): string {

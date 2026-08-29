@@ -29,7 +29,8 @@ npm test
   - `step: process count returns to baseline`
 - `bridge-editor-context.test` 验证 Host 入口无需外部模块解析即可加载，`/vscode-context` 严格拒绝畸形/超限输入，且只调用 `agent.inject`
 - `editor-context-bridge.test` 与 `webview-html.test` 验证 requestId/sessionId 关联、结构化响应、iframe source + 精确 origin 校验以及下行禁止 wildcard target
-- 结尾：`All 13 test file(s) passed.`（72 个测试全绿：70 个纯单元测试 + 2 个真实 DSH 集成测试）
+- `bridge-client-editor-context.test` 验证 DSH client 只接受父窗口且 requestId/sessionId 完全匹配的响应，覆盖结构化错误、超时与销毁清理，并验证输入框工具行按钮只向点击时绑定的会话调用 `SessionFace.command`
+- 结尾：`All 14 test file(s) passed.`（81 个测试全绿：79 个纯单元测试 + 2 个真实 DSH 集成测试）
 
 > 真实 DSH 集成测试会写入隔离/用户 `DSH_HOME` 并查询进程；受限沙箱中应单独在沙箱外运行 `node --test dist-test/server-manager.integration.test.js`。
 
@@ -47,6 +48,17 @@ npm run test:smoke
 4. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
 
 > 本机运行 smoke 前需要清掉 `ELECTRON_RUN_AS_NODE`（当前会话被扩展宿主置为 `1`，会让 Code.exe 拒绝 VS Code CLI 参数）：`$env:ELECTRON_RUN_AS_NODE=$null; npm run test:smoke`。
+
+### 1.3 Phase 2B 真实浏览器点击
+
+在 DSH 服务启动后执行：
+
+```powershell
+cd D:\michael_codes\dsh-vscode\extension
+node test/gui-bridge-smoke.js http://127.0.0.1:<当前端口>
+```
+
+**通过标准**：真实 DSH GUI 在 iframe 中渲染上下文按钮；脚本点击后输出 `GUI_BUTTON_STATE=success`、`GUI_CONTEXT_REQUEST=received`、`GUI_SESSION_COMMAND=matched`。父页面仅模拟已由 `webview-html.test` 和扩展 smoke 覆盖的 VS Code 中继，DSH client 渲染和 Host 命令均使用安装态真实服务。
 
 ---
 
@@ -132,6 +144,15 @@ sidebar view resolved (visible=true)
 
 **安装后端自动验收（2026-08-25）**：桥接包随 VSIX 打包；在临时隔离 `DSH_HOME` 中真实调用 DSH/pnpm，依赖落盘、loader 插入、原 patch 备份和最终 `installed` 状态全部通过；临时目录清理后真实 `~/.dsh` 未变化。
 
+### H. Phase 2B：显式共享编辑器上下文（需重新安装 bridge）
+
+1. 执行 `DSH: Install VS Code Bridge` → **Reinstall**，完成后重启 DSH。
+2. 在 VS Code 打开一个本地文件，把光标放到目标位置；可选中一段文本验证选区路径。
+3. 在对应 DSH 会话输入框左侧工具行点击 **共享编辑器上下文**。
+4. 按钮应显示“正在读取编辑器…”→“已共享选区”或“已共享文件位置”；会话流中出现 `/vscode-context` 命令结果。
+
+**通过标准**：上下文只注入点击时绑定的会话；有选区时包含有界选区文本，无选区时不读取全文；空闲会话不会被自动唤醒；没有本地编辑器或 bridge Host 命令时按钮进入可重试错误态。
+
 ---
 
 ## 3. 安装态验证（VSIX）
@@ -150,8 +171,8 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 
 | 项 | 结果 | 日期 | 备注 |
 |---|---|---|---|
-| 自动化测试（10 文件 / 53 测试） | ✅ | 2026-08-25 | 51 个纯单元测试；真实 dsh web 集成 2/2 在沙箱外通过 |
-| npm run test:smoke（3 passing） | ✅ | 2026-08-16 | panel/HTTP、Open in Editor、侧边栏 WebviewView 解析 |
+| 自动化测试（14 文件 / 81 测试） | ✅ | 2026-08-29 | 79 个纯单元测试；真实 dsh web 集成 2/2 在沙箱外通过 |
+| npm run test:smoke（4 passing） | ✅ | 2026-08-27 | panel/HTTP、Open in Editor、编辑器上下文读取、侧边栏 WebviewView 解析 |
 | A 正常打开 + 记录 | ✅ | 2026-08-16 | — |
 | B Stop + 端口释放 | ✅ | 2026-08-16 | — |
 | C 崩溃自动恢复 | ✅ | 2026-08-16 | — |
@@ -160,7 +181,8 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 | F 侧边栏解析 | ✅ | 2026-08-16 | `type: webview` 修复后 |
 | G Phase 2A Open in VS Code | 🟡 | 2026-08-25 | 扩展侧 smoke、插件装载和一键安装后端通过；真实 GUI 点击仍待肉眼复核 |
 | Phase 2A VSIX 分发 + 隔离安装 | ✅ | 2026-08-25 | VSIX 内含 bridge；临时 `DSH_HOME` 中真实 DSH/pnpm 安装、备份、loader 和清理全部通过 |
-| VSIX 打包 + 安装 | ✅ | 2026-08-25 | `dsh-vscode-0.1.1.vsix`，15 文件 / 29.56 KB |
+| H Phase 2B 显式共享上下文 | ✅ | 2026-08-29 | 安装态真实 DSH GUI 按钮点击成功；父响应收到，Host `/vscode-context` 匹配，按钮显示“已共享选区” |
+| VSIX 打包 + 安装 | ✅ | 2026-08-29 | `dsh-vscode-0.1.1.vsix`，18 文件 / 38.9 KB；本机覆盖安装并重启 DSH 成功 |
 
 ---
 
@@ -170,4 +192,5 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 - **`workspace seed failed ... HTTP 404`**：dsh API 路由晚于 HTTP 监听就绪，扩展已内置重试（250ms→500ms→1s），一般会自动恢复；持续 404 则检查 dsh 版本是否异常。
 - **输出通道没有 `dsh ready`**：先 `DSH: Check Installation` 看诊断链；确认 `dsh` 在 PATH 或 `dsh.binPath` 有效。
 - **点了 Open in VS Code 没反应**：先运行 `DSH: Check Installation`，不是 `bridge: READY` 时执行 `DSH: Install VS Code Bridge`；再 `Developer: Reload Window`，并查看输出通道有没有 `open in editor requested` / `opened in editor` / `open in editor failed`。
+- **bridge 重装在 `Test User` 一类含空格用户目录失败**：扩展安装器会为 DSH 0.1.1 的 Windows 内层 pnpm shell 保留字面引号；若仍失败，确认正在运行的是最新 VSIX 后重试。
 - **测试时命令挂住**：`showInformationMessage` 无按钮时不要 `await`（扩展内已 fire-and-forget）；自动化环境里活动栏视图可能无法真实可见，侧边栏以人工 F5 为准。
