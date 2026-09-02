@@ -1,8 +1,9 @@
 # dsh-vscode-bridge
 
 DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** 和只读
-**在 VS Code 中预览变更** 按钮，并提供非唤醒的 `/vscode-context` Host 命令，
-用于注入用户显式共享的编辑器上下文。
+**在 VS Code 中预览变更** 按钮，提供非唤醒的 `/vscode-context` Host 命令，
+并注册只生成提案、不接触文件系统的 `vscode_apply_diff` 工具。编辑提案只有在
+VS Code 原生 diff 和模态确认通过后才会成为未保存、可一次 Undo 的编辑。
 
 ## 安装
 
@@ -36,10 +37,17 @@ DSH web profile 插件：在 DSH 的产物文件行追加 **Open in VS Code** �
   关闭消息序号和文件分组 `oldText/newText` 上下文片段；点击预览按钮后发送
   `dsh:previewDiff`。扩展严格校验大小和结构，并用内存虚拟文档打开 VS Code 内置 Diff，
   不读取、创建或修改目标文件。
+- `lib/apply-edit.js` 注册 `vscode_apply_diff`：模型必须提供一个已有文本文件的完整
+  `before_text`/`after_text`；工具只做严格限长校验、生成 requestId 和 preimage SHA-256，
+  不注入 `fs` 服务也不读写文件。成功提案进入 turn 数据后，client 渲染一次性
+  **Review and apply in VS Code** 按钮。
+- client 以 requestId + 点击时 sessionId 发送完整提案；父 Webview 同时校验精确来源、
+  精确字段和大小，再交给扩展。扩展仅在可信本地工作区、已有普通文本文件、canonical
+  path 未逃逸、文档 clean 且全文 preimage 精确匹配时展示原生 diff/确认；确认后再次
+  校验，使用单一 Undo 单元编辑且绝不自动保存。成功、取消和稳定错误码沿原关联链回传。
 
-Phase 2B/2C 的代码通路已经接通；重新安装 bridge 并重启 DSH 后，可从会话输入框工具行
-显式共享编辑器上下文，并从产物行打开只读 Diff。安装态真实浏览器验收和人工复验步骤见
-扩展仓库 `VERIFICATION.md`。
+Phase 2B/2C 与 Phase 2D 的代码通路已经接通；Phase 2D 安装态真实浏览器与完整人工确认
+仍待最后验收。复验步骤见扩展仓库 `VERIFICATION.md`。
 
 ## 卸载
 

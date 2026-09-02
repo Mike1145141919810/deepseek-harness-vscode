@@ -31,7 +31,7 @@ npm test
 - `editor-context-bridge.test` 与 `webview-html.test` 验证 requestId/sessionId 关联、结构化响应、iframe source + 精确 origin 校验以及下行禁止 wildcard target
 - `bridge-client-editor-context.test` 验证 DSH client 只接受父窗口且 requestId/sessionId 完全匹配的响应，覆盖结构化错误、超时与销毁清理；同时验证上下文按钮的精确会话命令，以及 Phase 2C 只采集成功落地的 Diff、按文件/结束序号分组并发送严格只读消息
 - `diff-preview.test` 验证 Diff 消息字段、绝对路径、片段/文本大小边界和内存前后文档构造
-- 结尾：`All 15 test file(s) passed.`（90 个测试全绿：88 个纯单元测试 + 2 个真实 DSH 集成测试）
+- 结尾：`All 18 test file(s) passed.`（126 个测试全绿，含 2 个真实 DSH 集成测试）
 
 > 真实 DSH 集成测试会写入隔离/用户 `DSH_HOME` 并查询进程；受限沙箱中应单独在沙箱外运行 `node --test dist-test/server-manager.integration.test.js`。
 
@@ -42,16 +42,20 @@ cd D:\michael_codes\dsh-vscode\extension
 npm run test:smoke
 ```
 
-**通过标准**：`5 passing`，包含：
+**通过标准**：`9 passing`，包含：
 1. 激活 → `dsh.open`（panel）→ 服务 HTTP 200 → `dsh.stopServer`
 2. `dsh.openInEditor` 打开临时文件并定位到指定行/列（Phase 2A 扩展侧验收）
 3. Webview 取得焦点后，`dsh.getEditorContext` 仍能读取最后一个本地文件编辑器的选区（Phase 2B 读取层）
 4. `dsh.previewDiff` 打开两份只读虚拟文档，并确认不会创建消息中的目标文件（Phase 2C 扩展侧验收）
-5. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
+5. Phase 2D 确认应用后文档保持 dirty、磁盘不变，一次 Undo 精确恢复 preimage
+6. Phase 2D 取消确认后文档与磁盘均不变
+7. Phase 2D 拒绝不可信、工作区外、符号链接逃逸、dirty、缺失与确认期间版本变化
+8. Webview 写回桥返回精确关联的成功结果，并拒绝畸形/超限请求
+9. 聚焦 `dsh.sidebarView` 后 WebviewViewProvider 被解析（侧边栏可运行的关键回归）
 
 > 本机运行 smoke 前需要清掉 `ELECTRON_RUN_AS_NODE`（当前会话被扩展宿主置为 `1`，会让 Code.exe 拒绝 VS Code CLI 参数）：`$env:ELECTRON_RUN_AS_NODE=$null; npm run test:smoke`。
 
-### 1.3 Phase 2B/2C 真实浏览器点击
+### 1.3 Phase 2B/2C/2D 真实浏览器点击
 
 在 DSH 服务启动后执行：
 
@@ -60,7 +64,7 @@ cd D:\michael_codes\dsh-vscode\extension
 node test/gui-bridge-smoke.js http://127.0.0.1:<当前端口>
 ```
 
-**通过标准**：真实 DSH GUI 在 iframe 中渲染上下文按钮；脚本点击后输出 `GUI_BUTTON_STATE=success`、`GUI_CONTEXT_REQUEST=received`、`GUI_SESSION_COMMAND=matched`。脚本还从运行中 DSH 的真实模块系统导入安装态 bridge，以固定 `FileDiff` 渲染实际 `VSCodeOpenButtons` React 组件，点击其 `data-dsh-vscode-diff` 按钮并输出 `GUI_DIFF_BUTTON=clicked`、`GUI_DIFF_REQUEST=received`、绝对 `GUI_DIFF_FILE` 和正数 `GUI_DIFF_HUNKS`。父页面仅模拟已由 `webview-html.test` 和扩展 smoke 覆盖的 VS Code 中继；不调用模型、不改写用户会话或工作区文件。
+**通过标准**：真实 DSH GUI 在 iframe 中渲染上下文按钮；脚本点击后输出 `GUI_BUTTON_STATE=success`、`GUI_CONTEXT_REQUEST=received`、`GUI_SESSION_COMMAND=matched`。脚本还从运行中 DSH 的真实模块系统导入安装态 bridge，渲染并点击实际 Diff 与写回 React 按钮；应输出 `GUI_DIFF_REQUEST=received`、`GUI_APPLY_REQUEST=received`、`GUI_APPLY_STATE=success` 及绝对文件路径。父页面只模拟已由 Webview 单测和真实 VS Code smoke 覆盖的 VS Code 中继/确认结果；不调用模型、不改写用户会话或工作区文件。
 
 ---
 
@@ -164,17 +168,26 @@ sidebar view resolved (visible=true)
 
 **通过标准**：输出通道出现 `diff preview requested` / `diff preview opened`，无 `diff preview failed`；预览内容来自 DSH 持久化的 `oldText/newText`，最多 200 个片段、单片段 256 KiB、总计 1 MiB，最多保留 20 组内存预览。
 
+### J. Phase 2D：确认后写回（需重新安装 bridge）
+
+1. 让 agent 调用 `vscode_apply_diff`，为工作区内一个已存在且未修改的文本文件生成完整替换提案。
+2. 点击 **在 VS Code 中审阅并应用**，确认 VS Code 先显示 Diff，再显示原生模态确认。
+3. 首次选择取消，确认编辑器与磁盘均不变；重新生成提案并明确选择 **Apply edit**。
+4. 确认编辑器内容已变化且保持未保存状态，磁盘字节仍不变；执行一次 Undo，确认完整恢复原内容。
+
+**通过标准**：只有原生确认能授权写回；确认前后均通过 workspace trust、lexical/canonical path、普通文件、dirty、preimage 与文档版本校验；写回形成一个 Undo 单元且不自动保存。
+
 ---
 
 ## 3. 安装态验证（VSIX）
 
 ```powershell
 cd D:\michael_codes\dsh-vscode\extension
-npm run package                        # 产出 dsh-vscode-0.1.1.vsix
-code --install-extension dsh-vscode-0.1.1.vsix --force
+npm run package                        # 产出 dsh-vscode-0.2.0.vsix
+code --install-extension dsh-vscode-0.2.0.vsix --force
 ```
 
-安装后：执行 `Developer: Reload Window`（或完全退出并重开 VS Code）→ 点活动栏机器人图标 → 执行 `DSH: Install VS Code Bridge` → 重复 §2 的 A/B/C/E/F/G/H/I。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.1.1`。
+安装后：执行 `Developer: Reload Window`（或完全退出并重开 VS Code）→ 点活动栏机器人图标 → 执行 `DSH: Install VS Code Bridge` → 重复 §2 的 A/B/C/E/F/G/H/I/J。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.2.0`。
 
 ---
 
@@ -182,8 +195,8 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 
 | 项 | 结果 | 日期 | 备注 |
 |---|---|---|---|
-| 自动化测试（15 文件 / 90 测试） | ✅ | 2026-08-29 | 88 个纯单元测试；真实 dsh web 集成 2/2 在沙箱外通过 |
-| npm run test:smoke（5 passing） | ✅ | 2026-08-29 | panel/HTTP、Open in Editor、编辑器上下文、只读虚拟 Diff、侧边栏解析 |
+| 自动化测试（18 文件 / 126 测试） | ✅ | 2026-09-02 | 含 Phase 2D 协议、Host/client、Webview、执行安全门槛及真实 dsh web 集成 2/2 |
+| npm run test:smoke（9 passing） | ✅ | 2026-09-02 | 含 Phase 2D 确认/取消、单 Undo、不保存、安全拒绝与 Webview 关联 |
 | A 正常打开 + 记录 | ✅ | 2026-08-16 | — |
 | B Stop + 端口释放 | ✅ | 2026-08-16 | — |
 | C 崩溃自动恢复 | ✅ | 2026-08-16 | — |
@@ -194,7 +207,8 @@ code --install-extension dsh-vscode-0.1.1.vsix --force
 | Phase 2A VSIX 分发 + 隔离安装 | ✅ | 2026-08-25 | VSIX 内含 bridge；临时 `DSH_HOME` 中真实 DSH/pnpm 安装、备份、loader 和清理全部通过 |
 | H Phase 2B 显式共享上下文 | ✅ | 2026-08-29 | 安装态真实 DSH GUI 按钮点击成功；父响应收到，Host `/vscode-context` 匹配，按钮显示“已共享选区” |
 | I Phase 2C 只读 Diff | ✅ | 2026-08-29 | 安装态 DSH 模块系统导入真实 bridge，实际 React 按钮渲染/点击成功；父窗口收到绝对路径和 1 个合法片段；扩展 smoke 确认零文件创建 |
-| VSIX 打包 + 安装 | ✅ | 2026-08-29 | `dsh-vscode-0.1.1.vsix`，18 文件 / 42.02 KB；本机覆盖安装并重启 DSH 成功 |
+| J Phase 2D 确认后写回 | ✅ | 2026-09-02 | 安装态真实 bridge 提案按钮/关联响应通过；VS Code smoke 验证原生确认、取消、单 Undo、零自动保存及安全拒绝 |
+| VSIX 打包 + 安装 | ✅ | 2026-09-02 | `dsh-vscode-0.2.0.vsix`，20 文件 / 51.27 KB；本机覆盖安装，DSH web profile bridge 链接同步至 0.2.0 |
 
 ---
 

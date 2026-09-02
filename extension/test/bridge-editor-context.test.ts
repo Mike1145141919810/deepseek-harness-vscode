@@ -186,14 +186,21 @@ describe('createEditorContextCommand', () => {
 describe('bridge host entry', () => {
   it('loads without external package resolution and registers the command', () => {
     let registered: unknown;
-    assert.deepEqual(hostInject, ['commands']);
+    let registeredTool: unknown;
+    assert.deepEqual(hostInject, ['commands', 'tools']);
     applyHostPlugin({
       commands: {
         register(command) {
           registered = command;
         },
       },
+      tools: {
+        register(tool) {
+          registeredTool = tool;
+        },
+      },
     });
     assert.equal((registered as { name?: string }).name, 'vscode-context');
+    assert.equal((registeredTool as { name?: string }).name, 'vscode_apply_diff');
   });
 });

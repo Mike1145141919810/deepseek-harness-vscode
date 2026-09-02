@@ -6,6 +6,7 @@
  *   ready    -> iframe (re-rendered automatically on every new port)
  */
 import * as vscode from 'vscode';
+import { ApplyEditController } from './apply-edit-vscode';
 import { EditorContextTracker } from './editor-context-vscode';
 import { readWebviewTemplate, seedWorkspaceFolders } from './gui-common';
 import { ServerManager } from './server-manager';
@@ -26,6 +27,7 @@ export class SidebarView implements vscode.WebviewViewProvider {
     private readonly context: vscode.ExtensionContext,
     private readonly manager: ServerManager,
     private readonly editorContext: EditorContextTracker,
+    private readonly applyEdit: ApplyEditController,
     private readonly logger: LoggerLike,
   ) {
     this.resolutionPromise = new Promise<void>((resolve) => {
@@ -76,7 +78,7 @@ export class SidebarView implements vscode.WebviewViewProvider {
     };
     view.webview.onDidReceiveMessage((message: { type?: string }) => {
       if (message?.type === 'dsh.open' || message?.type === 'dsh.retry') void this.open();
-      handleDshWebviewMessage(message, view.webview, this.editorContext, this.logger);
+      handleDshWebviewMessage(message, view.webview, this.editorContext, this.applyEdit, this.logger);
     });
 
     const url = this.pendingUrl ?? this.manager.getUrl();

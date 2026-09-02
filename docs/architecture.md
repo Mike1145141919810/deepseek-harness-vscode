@@ -36,6 +36,8 @@
 | `src/settings.ts` | 配置访问（vscode 依赖层） |
 | `src/editor-bridge.ts` | 纯解析 `dsh.openInEditor` 消息（绝对路径/行列校验，无 vscode 依赖） |
 | `src/editor-bridge-vscode.ts` | 打开文件/定位光标（vscode 依赖层） |
+| `src/apply-edit.ts` | Phase 2D 严格写回协议、路径/preimage 策略与请求防重放（纯 Node） |
+| `src/apply-edit-vscode.ts` | Phase 2D 原生 diff/模态确认、重复安全校验、单 undo 单元且不自动保存 |
 | `src/logger.ts` | 输出通道 |
 | `packages/dsh-vscode-bridge` | DSH web profile 客户端插件：产物行 “Open in VS Code” 按钮 + postMessage |
 
@@ -76,7 +78,7 @@ dispose(): stopping → stopped（taskkill /T /F 于 Windows）
 - **DSH 客户端插件**：`packages/dsh-vscode-bridge` 注册 `conversation.chat.turnTail` chain 条目（`priority: -1`，先于 stock `ProducedFiles`），复用 `@deepseek-ai/dsh-client-ui-deliverables/client` 的 `ProducedFiles` 与 `producedForClosing`，在产物行下追加 “Open in VS Code” 按钮。相对路径用 `resolveWorkspacePath(cwd, path)` 转绝对路径。
 - **安装与分发**：构建时把 `packages/dsh-vscode-bridge` 的运行文件复制进 VSIX；`DSH: Install VS Code Bridge` 经模态确认后调用 `dsh plugin --profile web add -w <bundled-path>`，确认依赖已落盘后再幂等写入 loader 条目。修改 `cordis.patch.yml` 前保留备份，结束时必须重新检测为 `installed`。`DSH: Check Installation` 会分别报告依赖、模块和 loader 状态。
 - **验收（2026-08-25）**：真实 `dsh web` 返回 `__DSH_BOOT__` 含 `dsh-vscode-bridge` 且 `/plugins/dsh-vscode-bridge/client.js` 200；VS Code smoke 的 `dsh.openInEditor` 用例通过；一键安装后端在隔离 `DSH_HOME` 中真实调用 DSH/pnpm，依赖、备份、loader、最终状态和清理全部通过。真实 GUI 内点击按钮仍待肉眼复核。
-- **未实现（Phase 2 剩余）**：2B DSH client 请求/响应适配与会话按钮；2C diff 只读预览；2D 写回工具（需先过设计门槛）。
+- **Phase 2 状态**：2A～2D 均已完成；2D 采用 DSH 提案、VS Code 原生确认和确认后重复校验的写回模型，详见 `phase-2d-safety.md`。
 
 ## Phase 2B 实施记录：编辑器上下文（读取层与 Host 注入已完成，通道待接）
 

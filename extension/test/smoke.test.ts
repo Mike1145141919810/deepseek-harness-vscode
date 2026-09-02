@@ -11,6 +11,14 @@ import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { ApplyEditController } from '../src/apply-edit-vscode';
+import {
+  APPLY_EDIT_PROTOCOL_VERSION,
+  APPLY_EDIT_REQUEST_MESSAGE_TYPE,
+  sha256ApplyEditText,
+} from '../src/apply-edit';
+import { DiffPreviewProvider } from '../src/diff-preview-vscode';
+import { handleDshWebviewMessage } from '../src/webview-bridge-vscode';
 
 const EXTENSION_ID = 'michael-lee.dsh-vscode';
 
@@ -30,6 +38,24 @@ interface EditorContextSnapshot {
     text: string;
     truncated: boolean;
   };
+}
+
+function applyRequest(
+  requestId: string,
+  file: string,
+  beforeText: string,
+  afterText: string,
+) {
+  return {
+    type: APPLY_EDIT_REQUEST_MESSAGE_TYPE,
+    version: APPLY_EDIT_PROTOCOL_VERSION,
+    requestId,
+    sessionId: 'smoke-session',
+    file,
+    beforeSha256: sha256ApplyEditText(beforeText),
+    beforeText,
+    afterText,
+  } as const;
 }
 
 async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, intervalMs: number): Promise<T | undefined> {
@@ -189,6 +215,265 @@ suite('DSH extension smoke', () => {
         await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
       }
     }
+  });
+
+  test('confirmed apply stays unsaved and one Undo restores the exact preimage', async function () {
+    this.timeout(60000);
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(workspaceFolder, 'the smoke runner should open its temporary workspace');
+    assert.equal(vscode.workspace.isTrusted, true, 'the smoke workspace should be trusted');
+
+    const file = path.join(workspaceFolder!.uri.fsPath, 'apply-edit.txt');
+    const before = 'before\n';
+    const after = 'after\nwith another line\n';
+    fs.writeFileSync(file, before);
+
+    const scheme = 'dsh-apply-edit-smoke';
+    const preview = new DiffPreviewProvider(scheme);
+    const registration = vscode.workspace.registerTextDocumentContentProvider(scheme, preview);
+    let confirmationCount = 0;
+    const controller = new ApplyEditController(preview, {
+      confirm: async (confirmation) => {
+        confirmationCount += 1;
+        assert.equal(confirmation.relativePath, 'apply-edit.txt');
+        assert.equal(confirmation.sessionId, 'smoke-session');
+        assert.equal(confirmation.beforeChars, before.length);
+        assert.equal(confirmation.afterChars, after.length);
+        return true;
+      },
+    });
+
+    try {
+      const result = await controller.apply(
+        applyRequest('smoke-apply-request', file, before, after),
+      );
+
+      assert.equal(result.ok, true, result.ok ? undefined : result.error.message);
+      assert.equal(confirmationCount, 1, 'the request should require exactly one confirmation');
+      const editor = vscode.window.activeTextEditor;
+      assert.ok(editor, 'the applied target should become the active editor');
+      assert.equal(editor!.document.uri.fsPath.toLowerCase(), file.toLowerCase());
+      assert.equal(editor!.document.getText(), after);
+      assert.equal(editor!.document.isDirty, true, 'the extension must not auto-save');
+      assert.equal(fs.readFileSync(file, 'utf8'), before, 'disk bytes must remain unchanged');
+
+      await vscode.commands.executeCommand('undo');
+      assert.equal(editor!.document.getText(), before, 'one Undo should restore the complete preimage');
+      assert.equal(editor!.document.isDirty, false, 'undoing to the saved preimage should clear dirty');
+      assert.equal(fs.readFileSync(file, 'utf8'), before, 'Undo must not require a disk write');
+    } finally {
+      registration.dispose();
+      preview.dispose();
+      if (vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() === file.toLowerCase()) {
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      }
+    }
+  });
+
+  test('cancelled apply previews but leaves the document and disk untouched', async function () {
+    this.timeout(60000);
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(workspaceFolder, 'the smoke runner should open its temporary workspace');
+    const file = path.join(workspaceFolder!.uri.fsPath, 'cancelled-edit.txt');
+    const before = 'keep this\n';
+    fs.writeFileSync(file, before);
+
+    const scheme = 'dsh-apply-cancel-smoke';
+    const preview = new DiffPreviewProvider(scheme);
+    const registration = vscode.workspace.registerTextDocumentContentProvider(scheme, preview);
+    const controller = new ApplyEditController(preview, { confirm: async () => false });
+    try {
+      const result = await controller.apply(
+        applyRequest('smoke-cancel-request', file, before, 'do not apply\n'),
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.error.code, 'USER_CANCELLED');
+      assert.equal(fs.readFileSync(file, 'utf8'), before);
+      const document = vscode.workspace.textDocuments.find(
+        (candidate) => candidate.uri.fsPath.toLowerCase() === file.toLowerCase(),
+      );
+      assert.equal(document?.getText(), before);
+      assert.equal(document?.isDirty, false);
+    } finally {
+      registration.dispose();
+      preview.dispose();
+      if (vscode.window.activeTextEditor?.document.uri.scheme === scheme) {
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      }
+    }
+  });
+
+  test('apply safety gates reject trust, path, dirty, missing, and version-race failures', async function () {
+    this.timeout(60000);
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(workspaceFolder, 'the smoke runner should open its temporary workspace');
+    const workspacePath = workspaceFolder!.uri.fsPath;
+    const before = 'protected\n';
+    const after = 'replacement\n';
+    const target = path.join(workspacePath, 'safety-gates.txt');
+    fs.writeFileSync(target, before);
+
+    let previewCount = 0;
+    let confirmCount = 0;
+    const preview = {
+      openDocuments: async () => {
+        previewCount += 1;
+      },
+    };
+    const rejectUnexpectedConfirmation = async () => {
+      confirmCount += 1;
+      return false;
+    };
+
+    const untrusted = new ApplyEditController(preview, {
+      confirm: rejectUnexpectedConfirmation,
+      isWorkspaceTrusted: () => false,
+    });
+    const untrustedResult = await untrusted.apply(
+      applyRequest('smoke-untrusted', target, before, after),
+    );
+    assert.equal(untrustedResult.ok, false);
+    if (!untrustedResult.ok) assert.equal(untrustedResult.error.code, 'WORKSPACE_UNTRUSTED');
+
+    const controller = new ApplyEditController(preview, {
+      confirm: rejectUnexpectedConfirmation,
+    });
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-apply-outside-'));
+    const outsideFile = path.join(outsideDir, 'outside.txt');
+    fs.writeFileSync(outsideFile, before);
+    const outsideResult = await controller.apply(
+      applyRequest('smoke-outside', outsideFile, before, after),
+    );
+    assert.equal(outsideResult.ok, false);
+    if (!outsideResult.ok) assert.equal(outsideResult.error.code, 'OUTSIDE_WORKSPACE');
+
+    const missingResult = await controller.apply(
+      applyRequest('smoke-missing', path.join(workspacePath, 'missing.txt'), before, after),
+    );
+    assert.equal(missingResult.ok, false);
+    if (!missingResult.ok) assert.equal(missingResult.error.code, 'FILE_NOT_FOUND');
+
+    const linkName = `outside-link-${Date.now()}`;
+    const linkPath = path.join(workspacePath, linkName);
+    fs.symlinkSync(outsideDir, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    const escapedResult = await controller.apply(
+      applyRequest('smoke-symlink-escape', path.join(linkPath, 'outside.txt'), before, after),
+    );
+    assert.equal(escapedResult.ok, false);
+    if (!escapedResult.ok) assert.equal(escapedResult.error.code, 'SYMLINK_ESCAPE');
+
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+    const editor = await vscode.window.showTextDocument(document, { preview: false });
+    await editor.edit((edit) => edit.insert(document.positionAt(document.getText().length), 'dirty'));
+    const dirtyResult = await controller.apply(
+      applyRequest('smoke-dirty', target, before, after),
+    );
+    assert.equal(dirtyResult.ok, false);
+    if (!dirtyResult.ok) assert.equal(dirtyResult.error.code, 'DIRTY_DOCUMENT');
+    await vscode.commands.executeCommand('undo');
+    assert.equal(document.getText(), before);
+    assert.equal(document.isDirty, false);
+
+    const versionBeforeRace = document.version;
+    const raceController = new ApplyEditController(preview, {
+      confirm: async () => {
+        confirmCount += 1;
+        const raceEditor = await vscode.window.showTextDocument(document, { preview: false });
+        await raceEditor.edit((edit) => edit.insert(new vscode.Position(0, 0), 'temporary'));
+        await vscode.commands.executeCommand('undo');
+        assert.equal(document.getText(), before);
+        assert.equal(document.isDirty, false);
+        assert.notEqual(document.version, versionBeforeRace);
+        return true;
+      },
+    });
+    const raceResult = await raceController.apply(
+      applyRequest('smoke-version-race', target, before, after),
+    );
+    assert.equal(raceResult.ok, false);
+    if (!raceResult.ok) assert.equal(raceResult.error.code, 'STALE_PREIMAGE');
+
+    assert.equal(previewCount, 1, 'only the initially valid race request should reach preview');
+    assert.equal(confirmCount, 1, 'only the initially valid race request should reach confirmation');
+    assert.equal(fs.readFileSync(target, 'utf8'), before, 'no rejected request may write to disk');
+    assert.equal(fs.readFileSync(outsideFile, 'utf8'), before, 'the escaped target must be untouched');
+
+    if (vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() === target.toLowerCase()) {
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    }
+  });
+
+  test('webview apply bridge returns correlated success and bounded invalid-request errors', async function () {
+    this.timeout(60000);
+
+    const responses: unknown[] = [];
+    let applyCalls = 0;
+    const webview = {
+      async postMessage(message: unknown) {
+        responses.push(message);
+        return true;
+      },
+    };
+    const controller = {
+      async apply(request: ReturnType<typeof applyRequest>) {
+        applyCalls += 1;
+        return {
+          ok: true as const,
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          documentVersion: 12,
+        };
+      },
+    } as unknown as ApplyEditController;
+    const logger = { log: () => undefined };
+    const editorContext = {} as never;
+    const file = path.join(vscode.workspace.workspaceFolders![0]!.uri.fsPath, 'bridge.txt');
+    const validRequest = applyRequest('bridge-valid', file, 'before\n', 'after\n');
+
+    assert.equal(
+      handleDshWebviewMessage(validRequest, webview, editorContext, controller, logger),
+      true,
+    );
+    assert.ok(await waitFor(() => responses.length >= 1 ? true : undefined, 5_000, 10));
+    assert.deepEqual(responses[0], {
+      type: 'dsh.applyEditResult',
+      requestId: 'bridge-valid',
+      sessionId: 'smoke-session',
+      ok: true,
+      documentVersion: 12,
+    });
+
+    const malformed = { ...applyRequest('bridge-invalid', file, 'before\n', 'after\n'), extra: true };
+    assert.equal(
+      handleDshWebviewMessage(malformed, webview, editorContext, controller, logger),
+      true,
+    );
+    assert.ok(await waitFor(() => responses.length >= 2 ? true : undefined, 5_000, 10));
+    assert.deepEqual(responses[1], {
+      type: 'dsh.applyEditResult',
+      requestId: 'bridge-invalid',
+      sessionId: 'smoke-session',
+      ok: false,
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'The DSH edit proposal is malformed or exceeds the safety limits.',
+      },
+    });
+
+    const oversized = {
+      ...applyRequest('bridge-oversized', file, 'before\n', 'after\n'),
+      afterText: 'x'.repeat(1_048_577),
+    };
+    assert.equal(
+      handleDshWebviewMessage(oversized, webview, editorContext, controller, logger),
+      true,
+    );
+    assert.ok(await waitFor(() => responses.length >= 3 ? true : undefined, 5_000, 10));
+    assert.equal((responses[2] as { ok?: boolean }).ok, false);
+    assert.equal(applyCalls, 1, 'invalid proposals must never reach the native controller');
   });
 
   test('sidebar view resolves its WebviewViewProvider when focused', async function () {

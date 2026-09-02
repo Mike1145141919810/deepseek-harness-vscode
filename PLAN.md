@@ -95,7 +95,7 @@ SPA 正常加载；CSS/JS 全量加载；WebSocket 连接；`/api` 调用；loca
 - **2A Open in Editor**：client plugin 给文件路径加按钮，`window.parent.postMessage` 发 `{type:'dsh:openInEditor', file, line}`；扩展 parent 文档 nonce 脚本收消息 → `vscode.window.showTextDocument`。
 - **2B Read editor context**：用户显式请求时，扩展读取最后一个仍打开的本地文件编辑器/主选区（不自动读全文）→ client `SessionFace.command('/vscode-context <json>')` → Host `commands.register({ recordInput: false })` → `agent.inject(UserMessage source=plugin/form=snapshot)`；`inject` 不唤醒空闲会话。读取层、Host 命令、双向通道、client 请求适配器及会话按钮接线均已实现；安装态真实浏览器已完成按钮点击、响应回传及 Host 命令匹配验证。
 - **2C Diff preview**：只采集成功 `tool/result` 的持久化 `FileDiff[]`，按轮次结束序号和文件分组；client 产物行显式按钮 → 精确 iframe source/origin 通道 → 扩展严格校验路径、结构和大小 → 内存虚拟文档 → VS Code `vscode.diff`。不读取、创建或修改目标文件；安装态真实浏览器已完成实际 React 按钮渲染、点击和父消息验证。
-- **2D Apply edit**：`vscode_apply_diff` 类写回工具，需先满足设计门槛：workspace trust 检查、用户确认流、单文件先行、undo 策略、非 workspace 文件拒绝——门槛不满足就停在 2C。
+- **2D Apply edit**：已完成。安全门槛、协议/策略、VS Code 执行层、Webview 双向关联及提案型 `vscode_apply_diff` Host/client 链均已落地（18 个测试文件、9 项真实 VS Code smoke 及安装态真实浏览器验收全通过），见 `docs/phase-2d-safety.md`。首版限定可信本地工作区内的已有单个文本文件，采用精确 preimage、VS Code 原生 diff + 模态确认、确认后重复校验、单一 undo 单元且绝不自动保存；路径逃逸、dirty/stale 文档或任一门槛不满足时拒绝写回。
 - 安装机制（2A 起）：`dsh plugin --profile web add file:../packages/dsh-vscode-bridge` + `cordis.patch.yml` 插入行；postMessage 为主通道，WS downlink 仅作备选。
 
 ### Phase 3 — 打磨与发布（开放项）

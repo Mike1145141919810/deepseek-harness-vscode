@@ -29,7 +29,7 @@ Panel / Sidebar ─iframe─► http://127.0.0.1:N  (SPA + /api + WebSocket)
 cd deepseek-harness-vscode
 npm install --prefix extension
 npm run package
-code --install-extension extension\dsh-vscode-0.1.1.vsix
+code --install-extension extension\dsh-vscode-0.2.0.vsix
 ```
 
 调试：在仓库根目录按 F5（使用 `Run Extension` 配置，自动编译并启动扩展开发宿主）。
@@ -56,6 +56,7 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - **Phase 2A（原生编辑器联动）**：执行 `DSH: Install VS Code Bridge` 后，DSH 的“产物”文件行会显示 **Open in VS Code** 按钮；点击后通过 `postMessage` 桥接到 VS Code 扩展，用 `showTextDocument` 在编辑器里打开对应文件（支持可选行号）。
 - **Phase 2B（显式上下文共享）**：会话输入框工具行可把最后一个本地编辑器的光标或有界选区显式注入当前 DSH 会话；无选区时不会读取全文，也不会唤醒空闲会话。
 - **Phase 2C（只读 Diff）**：成功的文件变更会显示 **在 VS Code 中预览变更**；扩展只用 DSH 已持久化的上下文片段创建内存虚拟文档，不读取或写入目标文件。
+- **Phase 2D（确认后写回）**：DSH 的 `vscode_apply_diff` 只生成单文件编辑提案；点击 **在 VS Code 中审阅并应用** 后，由 VS Code 展示 Diff 和原生模态确认。扩展仅允许可信本地工作区内已有的普通文本文件，确认前后均校验路径、dirty 状态、完整 preimage 与文档版本；成功后只修改编辑器缓冲区，形成一个 Undo 单元，绝不自动保存。
 
 ## 设置（`dsh.*`）
 
@@ -76,12 +77,14 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
 - **点了 Open in VS Code 没反应**：先执行 `DSH: Check Installation`，确认输出含 `bridge: READY`；否则运行 `DSH: Install VS Code Bridge`。仍无反应时执行 `Developer: Reload Window`，并查看输出通道是否出现 `open in editor requested` / `opened in editor` / `open in editor failed`。
 - **Diff 预览按钮没出现**：只有成功执行并带 Diff 结果的文件写入/编辑会显示；重新安装 bridge、重启 DSH，并确认输出通道没有 `diff preview failed`。
+- **写回按钮没出现或被拒绝**：需由 agent 显式调用 `vscode_apply_diff` 生成提案。重新安装 bridge 并重启 DSH；同时确认工作区受信任、文件位于工作区且已存在、编辑器未有未保存更改，并且文件内容仍与提案 preimage 一致。
 - 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID；实例记录持久化到 globalStorage，下次启动会做 stale 检测（旧 PID 已死/端口失效则清记录并告警）。
 
 ## 安全
 
 - 服务只绑定 `127.0.0.1`；安全相关参数不允许通过 `extraArgs` 覆盖。
 - Webview 的 CSP 仅允许 `http://127.0.0.1:*` 帧；父文档只执行带每次渲染 nonce 的本地桥接脚本，不允许远程脚本。
+- Phase 2D 的 iframe 只负责发起提案，写入授权只能来自 VS Code 原生模态确认；请求受严格字段/大小、精确 source/origin、workspace realpath、preimage、版本、防重放和超时门槛保护。
 - 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树并校验端口释放；异常崩溃场景在下次启动时做 stale 检测并告警。
 
 ## MVP 验收清单（人工）
@@ -102,6 +105,7 @@ code --install-extension extension\dsh-vscode-0.1.1.vsix
 - [ ] Phase 2A：安装 `dsh-vscode-bridge` 插件后，DSH 产物文件行出现 **Open in VS Code** 按钮，点击在编辑器打开对应文件
 - [x] Phase 2B：安装态真实 GUI 显式共享选区，精确会话命令匹配
 - [x] Phase 2C：安装态真实 GUI 点击 Diff 预览按钮，VS Code 打开只读虚拟比较视图
+- [x] Phase 2D：安装态真实 GUI 发送严格写回提案；VS Code 原生 smoke 验证确认、取消、安全拒绝、单 Undo 与不自动保存
 - [x] VSIX 打包成功（`npm run package`）
 
 ## License

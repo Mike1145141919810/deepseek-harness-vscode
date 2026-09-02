@@ -8,6 +8,7 @@
  * the iframe is re-rendered.
  */
 import * as vscode from 'vscode';
+import { ApplyEditController } from './apply-edit-vscode';
 import { EditorContextTracker } from './editor-context-vscode';
 import { readWebviewTemplate, seedWorkspaceFolders } from './gui-common';
 import { ServerManager } from './server-manager';
@@ -25,6 +26,7 @@ export class GuiPanel {
     private readonly context: vscode.ExtensionContext,
     private readonly manager: ServerManager,
     private readonly editorContext: EditorContextTracker,
+    private readonly applyEdit: ApplyEditController,
     private readonly logger: LoggerLike,
   ) {
     // If the server restarts (new port) while the panel is open, reload the
@@ -75,7 +77,7 @@ export class GuiPanel {
     });
     panel.webview.onDidReceiveMessage((message: { type?: string }) => {
       if (message?.type === 'dsh.retry') void this.open();
-      handleDshWebviewMessage(message, panel.webview, this.editorContext, this.logger);
+      handleDshWebviewMessage(message, panel.webview, this.editorContext, this.applyEdit, this.logger);
     });
     this.render(url);
     this.logger.log(`panel opened at ${url}`);

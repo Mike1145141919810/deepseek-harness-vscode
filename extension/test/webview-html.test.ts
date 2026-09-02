@@ -75,4 +75,24 @@ describe('webview-html', () => {
     assert.match(panel, /typeof data\.file === 'string'/);
     assert.match(panel, /Array\.isArray\(data\.diffs\)/);
   });
+
+  it('bounds Phase 2D proposals and pins correlated results to the iframe origin', () => {
+    const panel = fs.readFileSync(path.resolve(__dirname, '..', 'media', 'panel.html'), 'utf8');
+    const sourceGuard = panel.indexOf('event.source === dshFrame.contentWindow');
+    const applyInput = panel.indexOf("data.type === 'dsh:requestApplyEdit'");
+    const applyHost = panel.indexOf("type: 'dsh.requestApplyEdit'");
+    const hostDownlink = panel.indexOf('// VS Code host -> parent webview');
+    const applyResult = panel.indexOf("type: 'dsh:applyEditResult'", hostDownlink);
+
+    assert.ok(applyInput > sourceGuard);
+    assert.ok(applyHost > applyInput && applyHost < hostDownlink);
+    assert.ok(applyResult > hostDownlink);
+    assert.match(panel, /hasExactKeys\(data/);
+    assert.match(panel, /data\.beforeText\.length <= 1048576/);
+    assert.match(panel, /data\.afterText\.length <= 1048576/);
+    assert.match(panel, /code: 'INVALID_REQUEST'/);
+    assert.match(panel, /type: 'dsh:applyEditResult'/);
+    assert.match(panel, /documentVersion: data\.documentVersion/);
+    assert.ok(!panel.includes(", '*'"), 'parent webview must not use wildcard postMessage targets');
+  });
 });

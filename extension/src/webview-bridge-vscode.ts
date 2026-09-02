@@ -1,6 +1,13 @@
 /** Shared VS Code host handler for messages from panel and sidebar webviews. */
 import * as vscode from 'vscode';
 import {
+  APPLY_EDIT_REQUEST_MESSAGE_TYPE,
+  APPLY_EDIT_RESPONSE_MESSAGE_TYPE,
+  parseApplyEditRequestIdentity,
+  parseApplyEditRequestMessage,
+} from './apply-edit';
+import { ApplyEditController } from './apply-edit-vscode';
+import {
   createEditorContextErrorResponse,
   createEditorContextSuccessResponse,
   EDITOR_CONTEXT_REQUEST_MESSAGE_TYPE,
@@ -65,6 +72,58 @@ async function postEditorContextResponse(
   }
 }
 
+async function postApplyEditResponse(
+  message: unknown,
+  webview: WebviewMessagePort,
+  applyEdit: ApplyEditController,
+  logger: LoggerLike,
+): Promise<void> {
+  const identity = parseApplyEditRequestIdentity(message);
+  const parsed = parseApplyEditRequestMessage(message);
+  if (!parsed.ok) {
+    logger.log(`apply-edit request rejected: ${parsed.reason}`);
+    if (!identity.ok) return;
+    await deliverApplyEditResponse(webview, {
+      type: APPLY_EDIT_RESPONSE_MESSAGE_TYPE,
+      requestId: identity.value.requestId,
+      sessionId: identity.value.sessionId,
+      ok: false,
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'The DSH edit proposal is malformed or exceeds the safety limits.',
+      },
+    }, logger);
+    return;
+  }
+
+  logger.log(`apply-edit confirmation requested: ${parsed.value.file} (request=${parsed.value.requestId})`);
+  const result = await applyEdit.apply(parsed.value);
+  await deliverApplyEditResponse(webview, {
+    type: APPLY_EDIT_RESPONSE_MESSAGE_TYPE,
+    ...result,
+  }, logger);
+}
+
+async function deliverApplyEditResponse(
+  webview: WebviewMessagePort,
+  response: unknown,
+  logger: LoggerLike,
+): Promise<void> {
+  try {
+    const delivered = await webview.postMessage(response);
+    const requestId = typeof response === 'object' && response !== null
+      ? (response as { requestId?: unknown }).requestId
+      : undefined;
+    logger.log(
+      delivered
+        ? `apply-edit response sent${typeof requestId === 'string' ? ` (request=${requestId})` : ''}`
+        : `apply-edit response not delivered${typeof requestId === 'string' ? ` (request=${requestId})` : ''}`,
+    );
+  } catch (error) {
+    logger.log(`apply-edit response failed: ${String(error instanceof Error ? error.message : error)}`);
+  }
+}
+
 /**
  * Handle bridge messages shared by GuiPanel and SidebarView. Returns true when
  * the message belongs to the bridge, including rejected context requests.
@@ -73,6 +132,7 @@ export function handleDshWebviewMessage(
   message: unknown,
   webview: WebviewMessagePort,
   editorContext: EditorContextTracker,
+  applyEdit: ApplyEditController,
   logger: LoggerLike,
 ): boolean {
   const type = messageType(message);
@@ -105,6 +165,10 @@ export function handleDshWebviewMessage(
         void vscode.window.showWarningMessage(`DeepSeek Harness: ${detail}`);
       },
     );
+    return true;
+  }
+  if (type === APPLY_EDIT_REQUEST_MESSAGE_TYPE) {
+    void postApplyEditResponse(message, webview, applyEdit, logger);
     return true;
   }
   return false;

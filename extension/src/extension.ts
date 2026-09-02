@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ApplyEditController } from './apply-edit-vscode';
 import { describeBridgeInstallation, detectBridgeInstallation } from './bridge-installation';
 import { installBundledBridge } from './bridge-installer';
 import { DIFF_PREVIEW_URI_SCHEME, DiffPreviewProvider } from './diff-preview-vscode';
@@ -32,8 +33,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
   });
   const editorContext = new EditorContextTracker();
   const diffPreview = new DiffPreviewProvider();
-  const gui = new GuiPanel(context, manager, editorContext, logger);
-  const sidebar = new SidebarView(context, manager, editorContext, logger);
+  const applyEdit = new ApplyEditController(diffPreview);
+  const gui = new GuiPanel(context, manager, editorContext, applyEdit, logger);
+  const sidebar = new SidebarView(context, manager, editorContext, applyEdit, logger);
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(robot) DSH';

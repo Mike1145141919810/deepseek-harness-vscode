@@ -18,6 +18,8 @@ const bridgeFiles = [
   path.join('lib', 'index.js'),
   path.join('lib', 'index.d.ts'),
   path.join('lib', 'client.js'),
+  path.join('lib', 'apply-edit.js'),
+  path.join('lib', 'apply-edit.d.ts'),
   path.join('lib', 'editor-context.js'),
   path.join('lib', 'editor-context.d.ts'),
 ];

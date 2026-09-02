@@ -21,7 +21,11 @@ window.__ModuleLoader__.load({
       "sharingEditorContext": "正在读取编辑器…",
       "editorSelectionShared": "已共享选区",
       "editorFileShared": "已共享文件位置",
-      "retryEditorContext": "重试共享"
+      "retryEditorContext": "重试共享",
+      "applyEditInVSCode": "在 VS Code 中审阅并应用",
+      "applyingEditInVSCode": "等待 VS Code 确认…",
+      "editAppliedInVSCode": "已应用（尚未保存）",
+      "editNotAppliedInVSCode": "未应用"
     };
     const en = {
       "openInVSCode": "Open in VS Code",
@@ -32,20 +36,37 @@ window.__ModuleLoader__.load({
       "sharingEditorContext": "Reading editor…",
       "editorSelectionShared": "Selection shared",
       "editorFileShared": "File position shared",
-      "retryEditorContext": "Retry sharing"
+      "retryEditorContext": "Retry sharing",
+      "applyEditInVSCode": "Review and apply in VS Code",
+      "applyingEditInVSCode": "Awaiting VS Code confirmation…",
+      "editAppliedInVSCode": "Applied (not saved)",
+      "editNotAppliedInVSCode": "Not applied"
     };
 
     const EDITOR_CONTEXT_REQUEST_TYPE = "dsh:requestEditorContext";
     const EDITOR_CONTEXT_RESPONSE_TYPE = "dsh:editorContext";
     const DIFF_PREVIEW_TYPE = "dsh:previewDiff";
+    const APPLY_EDIT_REQUEST_TYPE = "dsh:requestApplyEdit";
+    const APPLY_EDIT_RESPONSE_TYPE = "dsh:applyEditResult";
     const EDITOR_CONTEXT_REQUEST_TIMEOUT_MS = 10_000;
+    const APPLY_EDIT_REQUEST_TIMEOUT_MS = 125_000;
     const MAX_REQUEST_ID_CHARS = 128;
     const MAX_SESSION_ID_CHARS = 512;
+    const MAX_APPLY_FILE_CHARS = 32_768;
+    const MAX_APPLY_TEXT_CHARS = 1_048_576;
 
     class EditorContextBridgeError extends Error {
       constructor(code, message) {
         super(message);
         this.name = "EditorContextBridgeError";
+        this.code = code;
+      }
+    }
+
+    class ApplyEditBridgeError extends Error {
+      constructor(code, message) {
+        super(message);
+        this.name = "ApplyEditBridgeError";
         this.code = code;
       }
     }
@@ -59,7 +80,147 @@ window.__ModuleLoader__.load({
         value.length > 0 &&
         value.length <= maxLength &&
         value.trim() === value &&
-        !/[\0\r\n]/u.test(value);
+        !/[\u0000-\u001f\u007f]/u.test(value);
+    }
+
+    function isApplyEditProposal(value) {
+      return isRecord(value) &&
+        Object.keys(value).length === 6 &&
+        value.version === 1 &&
+        validOpaqueId(value.requestId, MAX_REQUEST_ID_CHARS) &&
+        typeof value.file === "string" &&
+        value.file.length > 0 &&
+        value.file.length <= MAX_APPLY_FILE_CHARS &&
+        value.file.trim() === value.file &&
+        !/[\u0000-\u001f\u007f]/u.test(value.file) &&
+        typeof value.beforeSha256 === "string" &&
+        /^[a-f0-9]{64}$/u.test(value.beforeSha256) &&
+        typeof value.beforeText === "string" &&
+        typeof value.afterText === "string" &&
+        value.beforeText.length <= MAX_APPLY_TEXT_CHARS &&
+        value.afterText.length <= MAX_APPLY_TEXT_CHARS &&
+        !value.beforeText.includes("\0") &&
+        !value.afterText.includes("\0") &&
+        value.beforeText !== value.afterText;
+    }
+
+    /** Correlate one Host proposal with the native VS Code apply result. */
+    function createApplyEditRequester(options = {}) {
+      const currentWindow = options.windowObject ?? window;
+      const parentWindow = options.parentWindow ?? currentWindow.parent;
+      const timeoutMs = options.timeoutMs ?? APPLY_EDIT_REQUEST_TIMEOUT_MS;
+      const scheduleTimeout = options.setTimeout ?? currentWindow.setTimeout.bind(currentWindow);
+      const cancelTimeout = options.clearTimeout ?? currentWindow.clearTimeout.bind(currentWindow);
+      const pending = new Map();
+      let disposed = false;
+
+      const rejectPending = (requestId, error) => {
+        const request = pending.get(requestId);
+        if (request === undefined) return;
+        pending.delete(requestId);
+        cancelTimeout(request.timer);
+        request.reject(error);
+      };
+      const onMessage = (event) => {
+        if (event.source !== parentWindow || !isRecord(event.data)) return;
+        const data = event.data;
+        if (
+          data.type !== APPLY_EDIT_RESPONSE_TYPE ||
+          !validOpaqueId(data.requestId, MAX_REQUEST_ID_CHARS) ||
+          !validOpaqueId(data.sessionId, MAX_SESSION_ID_CHARS)
+        ) return;
+        const request = pending.get(data.requestId);
+        if (request === undefined || request.sessionId !== data.sessionId) return;
+
+        if (
+          data.ok === true &&
+          typeof data.documentVersion === "number" &&
+          Number.isInteger(data.documentVersion) &&
+          data.documentVersion >= 0
+        ) {
+          pending.delete(data.requestId);
+          cancelTimeout(request.timer);
+          request.resolve({ documentVersion: data.documentVersion });
+          return;
+        }
+        if (
+          data.ok === false &&
+          isRecord(data.error) &&
+          typeof data.error.code === "string" &&
+          typeof data.error.message === "string"
+        ) {
+          rejectPending(
+            data.requestId,
+            new ApplyEditBridgeError(data.error.code, data.error.message),
+          );
+        }
+      };
+      currentWindow.addEventListener("message", onMessage);
+
+      return {
+        request(sessionId, proposal) {
+          if (disposed) return Promise.reject(new ApplyEditBridgeError(
+            "BRIDGE_DISPOSED",
+            "The VS Code apply-edit bridge is no longer available.",
+          ));
+          if (parentWindow === currentWindow) return Promise.reject(new ApplyEditBridgeError(
+            "NOT_EMBEDDED",
+            "Open DeepSeek Harness inside VS Code to apply this proposal.",
+          ));
+          if (!validOpaqueId(sessionId, MAX_SESSION_ID_CHARS)) {
+            return Promise.reject(new ApplyEditBridgeError(
+              "INVALID_SESSION_ID",
+              "A valid DSH session is required before applying an edit.",
+            ));
+          }
+          if (!isApplyEditProposal(proposal)) return Promise.reject(new ApplyEditBridgeError(
+            "INVALID_REQUEST",
+            "The DSH edit proposal is malformed or too large.",
+          ));
+          if (pending.has(proposal.requestId)) return Promise.reject(new ApplyEditBridgeError(
+            "DUPLICATE_REQUEST",
+            "This edit proposal is already awaiting VS Code.",
+          ));
+
+          return new Promise((resolve, reject) => {
+            const timer = scheduleTimeout(() => {
+              rejectPending(proposal.requestId, new ApplyEditBridgeError(
+                "APPLY_EDIT_TIMEOUT",
+                "VS Code did not finish the edit confirmation in time.",
+              ));
+            }, timeoutMs);
+            pending.set(proposal.requestId, { sessionId, resolve, reject, timer });
+            try {
+              parentWindow.postMessage({
+                type: APPLY_EDIT_REQUEST_TYPE,
+                version: proposal.version,
+                requestId: proposal.requestId,
+                sessionId,
+                file: proposal.file,
+                beforeSha256: proposal.beforeSha256,
+                beforeText: proposal.beforeText,
+                afterText: proposal.afterText,
+              }, "*");
+            } catch {
+              rejectPending(proposal.requestId, new ApplyEditBridgeError(
+                "APPLY_EDIT_SEND_FAILED",
+                "The edit proposal could not be sent to VS Code.",
+              ));
+            }
+          });
+        },
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          currentWindow.removeEventListener("message", onMessage);
+          for (const requestId of [...pending.keys()]) {
+            rejectPending(requestId, new ApplyEditBridgeError(
+              "BRIDGE_DISPOSED",
+              "The VS Code apply-edit bridge was closed.",
+            ));
+          }
+        },
+      };
     }
 
     /**
@@ -379,6 +540,76 @@ window.__ModuleLoader__.load({
       return [...byPath.values()];
     }
 
+    /** Persist successful proposal-tool metadata for the closing turn UI. */
+    const applyProposalsDefinition = {
+      kind: "dsh-vscode-apply-proposals",
+      match: (event) => {
+        if (event.type === "turn/start") return {
+          id: String(event.data.turn),
+          role: "start",
+        };
+        if (event.type === "tool/result" && _runtime.isAppendSurfaceEvent(event)) return {
+          id: String(event.data.turn),
+          role: "update",
+        };
+        return null;
+      },
+      start: (_context, match) => {
+        if (match.event.type !== "turn/start") {
+          throw new Error("dsh-vscode apply proposals require turn/start");
+        }
+        return { turn: match.event.data.turn, proposals: [] };
+      },
+      update: (context, match) => {
+        if (match.event.type !== "tool/result") return context.state;
+        if (match.event.data.message.content[0]?.isError === true) return context.state;
+        const view = match.view?.for === "result" ? match.view.view : null;
+        const proposal = isRecord(view) ? view.dshVscodeApplyProposal : undefined;
+        if (!isApplyEditProposal(proposal)) return context.state;
+        return {
+          ...context.state,
+          proposals: [...context.state.proposals, {
+            seq: match.event.seq,
+            version: proposal.version,
+            requestId: proposal.requestId,
+            file: proposal.file,
+            beforeSha256: proposal.beforeSha256,
+            beforeText: proposal.beforeText,
+            afterText: proposal.afterText,
+          }],
+        };
+      },
+      buildLocationData: (context, scope) =>
+        scope !== "turn" || context.state === undefined
+          ? null
+          : {
+              kind: "turn",
+              turn: context.state.turn,
+              key: "dshVscodeApplyProposals",
+              value: { proposals: context.state.proposals },
+            },
+    };
+
+    function applyProposalsForClosing(data, seq = Number.POSITIVE_INFINITY) {
+      if (!isRecord(data) || !Array.isArray(data.proposals)) return [];
+      const proposals = [];
+      for (const candidate of data.proposals) {
+        if (!isRecord(candidate) || typeof candidate.seq !== "number" || candidate.seq > seq) {
+          continue;
+        }
+        const proposal = {
+          version: candidate.version,
+          requestId: candidate.requestId,
+          file: candidate.file,
+          beforeSha256: candidate.beforeSha256,
+          beforeText: candidate.beforeText,
+          afterText: candidate.afterText,
+        };
+        if (isApplyEditProposal(proposal)) proposals.push(proposal);
+      }
+      return proposals;
+    }
+
     /** Send one strictly shaped, read-only diff request to the embedding parent. */
     function postDiffPreview(parentWindow, cwd, preview) {
       parentWindow.postMessage({
@@ -416,6 +647,65 @@ window.__ModuleLoader__.load({
         owner.seq,
       ).filter((preview) => paths.includes(preview.path));
       return { paths, previews };
+    }
+
+    function selectApplyProposals(owner) {
+      const proposals = applyProposalsForClosing(
+        owner.turn.data.get("dshVscodeApplyProposals"),
+        owner.seq,
+      );
+      return proposals.length === 0 ? null : proposals;
+    }
+
+    function VSCodeApplyButtons({ matched, requestApplyEdit, t }) {
+      const [states, setStates] = react.useState({});
+      if (window.parent === window) return null;
+
+      const run = async (proposal) => {
+        if (states[proposal.requestId] !== undefined) return;
+        setStates((current) => ({ ...current, [proposal.requestId]: { phase: "pending" } }));
+        try {
+          await requestApplyEdit(proposal);
+          setStates((current) => ({ ...current, [proposal.requestId]: { phase: "success" } }));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "VS Code did not apply the edit.";
+          setStates((current) => ({
+            ...current,
+            [proposal.requestId]: { phase: "error", message },
+          }));
+        }
+      };
+
+      return react.createElement(
+        "div",
+        { className: "dsh-vscode-bridge-apply-actions" },
+        matched.map((proposal) => {
+          const state = states[proposal.requestId] ?? { phase: "idle" };
+          const label = state.phase === "pending"
+            ? t("applyingEditInVSCode")
+            : state.phase === "success"
+              ? t("editAppliedInVSCode")
+              : state.phase === "error"
+                ? t("editNotAppliedInVSCode")
+                : t("applyEditInVSCode");
+          return react.createElement("button", {
+            key: proposal.requestId,
+            type: "button",
+            "data-dsh-vscode-apply": "",
+            "data-state": state.phase,
+            "aria-label": `${label}: ${proposal.file}`,
+            "aria-live": "polite",
+            title: state.phase === "error" ? state.message : proposal.file,
+            disabled: state.phase !== "idle",
+            style: {
+              ...contextButtonStyle,
+              cursor: state.phase === "idle" ? "pointer" : "default",
+              opacity: state.phase === "idle" ? 0.85 : 0.65,
+            },
+            onClick: () => run(proposal),
+          }, `${label}: ${basename(proposal.file)}`);
+        }),
+      );
     }
 
     /**
@@ -514,10 +804,15 @@ window.__ModuleLoader__.load({
       const connection = ctx.get("connection");
       const sessions = ctx.sessions;
       const contextRequester = createEditorContextRequester();
+      const applyEditRequester = createApplyEditRequester();
       ctx.conversationEvents.register(diffPreviewsDefinition);
+      ctx.conversationEvents.register(applyProposalsDefinition);
       ctx.effect(
-        () => () => contextRequester.dispose(),
-        "dsh-vscode-bridge: editor context requester",
+        () => () => {
+          contextRequester.dispose();
+          applyEditRequester.dispose();
+        },
+        "dsh-vscode-bridge: VS Code request bridges",
       );
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-vscode-bridge: dictionaries");
       ctx.slots.inject("conversation.chat.turnTail", () => ctx.slots.register({
@@ -543,6 +838,21 @@ window.__ModuleLoader__.load({
           ),
         }),
       }, VSCodeEditorContextButton));
+      ctx.slots.inject("conversation.chat.turnTail", () => ctx.slots.register({
+        name: "conversation.chat.turnTail",
+        priority: -2,
+        select: selectApplyProposals,
+        locale: NS,
+        inject: (sessionId) => ({
+          requestApplyEdit: (proposal) => {
+            const cwd = sessions.binding(sessionId)?.session?.cwd;
+            return applyEditRequester.request(sessionId, {
+              ...proposal,
+              file: _runtime.resolveWorkspacePath(cwd, proposal.file),
+            });
+          },
+        }),
+      }, VSCodeApplyButtons));
     }
 
     exports.apply = apply;
@@ -553,6 +863,11 @@ window.__ModuleLoader__.load({
     exports.diffPreviewsForClosing = diffPreviewsForClosing;
     exports.postDiffPreview = postDiffPreview;
     exports.VSCodeOpenButtons = VSCodeOpenButtons;
+    exports.createApplyEditRequester = createApplyEditRequester;
+    exports.ApplyEditBridgeError = ApplyEditBridgeError;
+    exports.applyProposalsDefinition = applyProposalsDefinition;
+    exports.applyProposalsForClosing = applyProposalsForClosing;
+    exports.VSCodeApplyButtons = VSCodeApplyButtons;
     exports.inject = inject;
     return module.exports;
   },

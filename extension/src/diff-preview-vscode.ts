@@ -24,6 +24,8 @@ export class DiffPreviewProvider implements vscode.TextDocumentContentProvider, 
   private readonly retained: StoredPreview[] = [];
   private nextId = 1;
 
+  constructor(private readonly uriScheme = DIFF_PREVIEW_URI_SCHEME) {}
+
   provideTextDocumentContent(uri: vscode.Uri): string | undefined {
     return this.content.get(uri.toString());
   }
@@ -34,21 +36,32 @@ export class DiffPreviewProvider implements vscode.TextDocumentContentProvider, 
     if (!parsed.ok) throw new TypeError(`Invalid diff preview message: ${parsed.reason}`);
 
     const documents = buildDiffPreviewDocuments(parsed.value.diffs);
+    await this.openDocuments(parsed.value.file, documents.original, documents.modified);
+    return parsed.value;
+  }
+
+  /** Open already-validated complete documents using the same in-memory provider. */
+  async openDocuments(
+    file: string,
+    originalText: string,
+    modifiedText: string,
+    title = `DSH Diff: ${path.basename(file) || 'change'}`,
+  ): Promise<void> {
     const id = this.nextId;
     this.nextId += 1;
-    const fileName = safeVirtualFileName(parsed.value.file);
+    const fileName = safeVirtualFileName(file);
     const original = vscode.Uri.from({
-      scheme: DIFF_PREVIEW_URI_SCHEME,
+      scheme: this.uriScheme,
       authority: 'preview',
       path: `/${id}/original/${fileName}`,
     });
     const modified = vscode.Uri.from({
-      scheme: DIFF_PREVIEW_URI_SCHEME,
+      scheme: this.uriScheme,
       authority: 'preview',
       path: `/${id}/modified/${fileName}`,
     });
-    this.content.set(original.toString(), documents.original);
-    this.content.set(modified.toString(), documents.modified);
+    this.content.set(original.toString(), originalText);
+    this.content.set(modified.toString(), modifiedText);
     this.retained.push({ original, modified });
     this.trimRetainedPreviews();
 
@@ -56,10 +69,9 @@ export class DiffPreviewProvider implements vscode.TextDocumentContentProvider, 
       'vscode.diff',
       original,
       modified,
-      `DSH Diff: ${path.basename(parsed.value.file) || 'change'}`,
+      title,
       { preview: true },
     );
-    return parsed.value;
   }
 
   dispose(): void {

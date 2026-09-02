@@ -37,7 +37,25 @@
         value.length > 0 &&
         value.length <= maxLength &&
         value.trim() === value &&
-        !/[\0\r\n]/u.test(value);
+        !/[\u0000-\u001f\u007f]/u.test(value);
+      const isRecord = (value) =>
+        typeof value === 'object' && value !== null && !Array.isArray(value);
+      const hasExactKeys = (value, keys) =>
+        isRecord(value) &&
+        Object.keys(value).length === keys.length &&
+        Object.keys(value).every((key) => keys.includes(key));
+      const postApplyError = (requestId, sessionId) => {
+        dshFrame.contentWindow.postMessage({
+          type: 'dsh:applyEditResult',
+          requestId,
+          sessionId,
+          ok: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'The DSH edit proposal is malformed or exceeds the safety limits.',
+          },
+        }, dshOrigin);
+      };
       window.addEventListener('message', (event) => {
         const data = event.data;
         if (event.source === dshFrame.contentWindow) {
@@ -73,6 +91,45 @@
               requestId: data.requestId,
               sessionId: data.sessionId,
             });
+            return;
+          }
+          if (
+            data.type === 'dsh:requestApplyEdit' &&
+            validOpaqueId(data.requestId, 128) &&
+            validOpaqueId(data.sessionId, 512)
+          ) {
+            const valid = hasExactKeys(data, [
+              'type', 'version', 'requestId', 'sessionId', 'file',
+              'beforeSha256', 'beforeText', 'afterText',
+            ]) &&
+              data.version === 1 &&
+              typeof data.file === 'string' &&
+              data.file.length > 0 && data.file.length <= 32768 &&
+              data.file.trim() === data.file &&
+              !/[\u0000-\u001f\u007f]/u.test(data.file) &&
+              typeof data.beforeSha256 === 'string' &&
+              /^[a-f0-9]{64}$/u.test(data.beforeSha256) &&
+              typeof data.beforeText === 'string' &&
+              typeof data.afterText === 'string' &&
+              data.beforeText.length <= 1048576 &&
+              data.afterText.length <= 1048576 &&
+              !data.beforeText.includes('\0') &&
+              !data.afterText.includes('\0') &&
+              data.beforeText !== data.afterText;
+            if (!valid) {
+              postApplyError(data.requestId, data.sessionId);
+              return;
+            }
+            vscode.postMessage({
+              type: 'dsh.requestApplyEdit',
+              version: data.version,
+              requestId: data.requestId,
+              sessionId: data.sessionId,
+              file: data.file,
+              beforeSha256: data.beforeSha256,
+              beforeText: data.beforeText,
+              afterText: data.afterText,
+            });
           }
           return;
         }
@@ -80,11 +137,13 @@
         // VS Code host -> parent webview -> exact DSH iframe origin.
         if (
           !data ||
-          data.type !== 'dsh.editorContext' ||
           !validOpaqueId(data.requestId, 128) ||
           !validOpaqueId(data.sessionId, 512)
         ) return;
-        if (data.ok === true && data.context && typeof data.context === 'object') {
+        if (
+          data.type === 'dsh.editorContext' &&
+          data.ok === true && data.context && typeof data.context === 'object'
+        ) {
           dshFrame.contentWindow.postMessage({
             type: 'dsh:editorContext',
             requestId: data.requestId,
@@ -95,13 +154,44 @@
           return;
         }
         if (
-          data.ok === false &&
+          data.type === 'dsh.editorContext' && data.ok === false &&
           data.error &&
           typeof data.error.code === 'string' &&
           typeof data.error.message === 'string'
         ) {
           dshFrame.contentWindow.postMessage({
             type: 'dsh:editorContext',
+            requestId: data.requestId,
+            sessionId: data.sessionId,
+            ok: false,
+            error: { code: data.error.code, message: data.error.message },
+          }, dshOrigin);
+          return;
+        }
+        if (
+          data.type === 'dsh.applyEditResult' &&
+          data.ok === true &&
+          typeof data.documentVersion === 'number' &&
+          Number.isInteger(data.documentVersion) && data.documentVersion >= 0
+        ) {
+          dshFrame.contentWindow.postMessage({
+            type: 'dsh:applyEditResult',
+            requestId: data.requestId,
+            sessionId: data.sessionId,
+            ok: true,
+            documentVersion: data.documentVersion,
+          }, dshOrigin);
+          return;
+        }
+        if (
+          data.type === 'dsh.applyEditResult' &&
+          data.ok === false &&
+          data.error &&
+          typeof data.error.code === 'string' &&
+          typeof data.error.message === 'string'
+        ) {
+          dshFrame.contentWindow.postMessage({
+            type: 'dsh:applyEditResult',
             requestId: data.requestId,
             sessionId: data.sessionId,
             ok: false,

@@ -5,6 +5,7 @@
 // VSCODE_EXE env: optional path to the Code executable; defaults are probed.
 const { runTests } = require('@vscode/test-electron');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const defaults = [
@@ -22,6 +23,7 @@ async function main() {
   }
   const extensionDevelopmentPath = path.resolve(__dirname, '..');
   const extensionTestsPath = path.resolve(__dirname, 'run-tests.js');
+  const smokeWorkspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-vscode-smoke-workspace-'));
 
   const env = { ...process.env };
   if (!env.DSH_BIN_PATH && fs.existsSync(env.DSH_BIN_PATH ?? '')) {
@@ -32,7 +34,13 @@ async function main() {
     vscodeExecutablePath,
     extensionDevelopmentPath,
     extensionTestsPath,
-    launchArgs: ['--disable-extensions', '--skip-welcome', '--skip-release-notes'],
+    launchArgs: [
+      smokeWorkspacePath,
+      '--disable-extensions',
+      '--disable-workspace-trust',
+      '--skip-welcome',
+      '--skip-release-notes',
+    ],
     env: {
       ...env,
       DSH_BIN_PATH: env.DSH_BIN_PATH || '',

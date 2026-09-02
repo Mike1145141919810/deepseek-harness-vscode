@@ -7,6 +7,7 @@
 // bridge from DSH's live module system, renders the actual produced-files
 // React component with a fixed FileDiff, and clicks its read-only diff button.
 const cp = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
@@ -55,6 +56,16 @@ const fixtureDiff = {
   oldText: '# DeepSeek Harness\n',
   newText: '# DeepSeek Harness for VS Code\n',
 };
+const fixtureApply = {
+  version: 1,
+  requestId: 'dsh-vscode-smoke-apply',
+  file: 'README.md',
+  beforeText: '# DeepSeek Harness\n',
+  afterText: '# DeepSeek Harness for VS Code\n',
+};
+fixtureApply.beforeSha256 = crypto.createHash('sha256')
+  .update(fixtureApply.beforeText, 'utf8')
+  .digest('hex');
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -174,7 +185,7 @@ async function main() {
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-gui-smoke-'));
   const origin = new URL(dshUrl).origin;
   const html = `<!doctype html>
-<html><body data-request="waiting" data-diff="waiting">
+<html><body data-request="waiting" data-diff="waiting" data-apply="waiting">
 <iframe id="dsh" src="${dshUrl}" style="width:1200px;height:800px;border:0"></iframe>
 <script>
 const frame = document.getElementById('dsh');
@@ -207,6 +218,30 @@ window.addEventListener('message', (event) => {
         Object.keys(diff).sort().join(',') === 'newText,oldText');
     document.body.dataset.diff = valid ? 'received' : 'invalid';
     window.__dshDiffMessage = data;
+    return;
+  }
+  if (data.type === 'dsh:requestApplyEdit') {
+    const expectedKeys = [
+      'afterText', 'beforeSha256', 'beforeText', 'file', 'requestId',
+      'sessionId', 'type', 'version'
+    ];
+    const keys = Object.keys(data).sort();
+    const valid = keys.length === expectedKeys.length &&
+      keys.every((key, index) => key === expectedKeys[index]) &&
+      data.version === 1 && data.requestId === ${JSON.stringify(fixtureApply.requestId)} &&
+      data.sessionId === 'smoke' && typeof data.file === 'string' &&
+      data.beforeSha256 === ${JSON.stringify(fixtureApply.beforeSha256)} &&
+      data.beforeText === ${JSON.stringify(fixtureApply.beforeText)} &&
+      data.afterText === ${JSON.stringify(fixtureApply.afterText)};
+    document.body.dataset.apply = valid ? 'received' : 'invalid';
+    window.__dshApplyMessage = data;
+    frame.contentWindow.postMessage({
+      type: 'dsh:applyEditResult',
+      requestId: data.requestId,
+      sessionId: data.sessionId,
+      ok: true,
+      documentVersion: 2
+    }, ${JSON.stringify(origin)});
   }
 });
 </script></body></html>`;
@@ -295,6 +330,19 @@ window.addEventListener('message', (event) => {
               useHostDescription: (selector) => selector({ canOpenPath: false }),
               useSessions,
               sessionId: 'smoke',
+              t,
+            }));
+            const applyRoot = document.createElement('div');
+            applyRoot.id = 'dsh-vscode-smoke-apply-root';
+            document.body.append(applyRoot);
+            const applyRequester = bridge.createApplyEditRequester();
+            window.__dshVscodeSmokeApplyRequester = applyRequester;
+            ReactDOM.createRoot(applyRoot).render(React.createElement(bridge.VSCodeApplyButtons, {
+              matched: [${JSON.stringify(fixtureApply)}],
+              requestApplyEdit: (proposal) => applyRequester.request('smoke', {
+                ...proposal,
+                file: ${JSON.stringify(path.resolve(fixtureDiff.cwd, fixtureApply.file))},
+              }),
               t,
             }));
           } catch (error) {
@@ -460,6 +508,46 @@ window.addEventListener('message', (event) => {
     console.log('GUI_DIFF_REQUEST=received');
     console.log(`GUI_DIFF_FILE=${diffMessage.file}`);
     console.log(`GUI_DIFF_HUNKS=${diffMessage.hunks}`);
+
+    await poll(async () => {
+      const result = await cdp.send('Runtime.evaluate', {
+        contextId: executionContextId,
+        expression: "Boolean(document.querySelector('[data-dsh-vscode-apply]'))",
+        returnByValue: true,
+      });
+      return result.result.value === true ? true : undefined;
+    }, 15_000);
+    await cdp.send('Runtime.evaluate', {
+      contextId: executionContextId,
+      expression: "document.querySelector('[data-dsh-vscode-apply]').click()",
+    });
+    const applyButton = await poll(async () => {
+      const result = await cdp.send('Runtime.evaluate', {
+        contextId: executionContextId,
+        expression: `(() => {
+          const button = document.querySelector('[data-dsh-vscode-apply]');
+          return button && button.dataset.state === 'success'
+            ? { state: button.dataset.state, text: button.textContent }
+            : undefined;
+        })()`,
+        returnByValue: true,
+      });
+      return result.result.value;
+    }, 15_000);
+    const applyMessage = await cdp.send('Runtime.evaluate', {
+      expression: `document.body.dataset.apply === 'received'
+        ? ({ file: window.__dshApplyMessage.file })
+        : ({ invalid: document.body.dataset.apply === 'invalid' })`,
+      returnByValue: true,
+    });
+    if (applyMessage.result.value?.invalid === true ||
+        applyMessage.result.value?.file !== path.resolve(fixtureDiff.cwd, fixtureApply.file)) {
+      throw new Error('the DSH client sent an invalid apply-edit payload');
+    }
+    console.log('GUI_APPLY_BUTTON=clicked');
+    console.log('GUI_APPLY_REQUEST=received');
+    console.log(`GUI_APPLY_STATE=${applyButton.state}`);
+    console.log(`GUI_APPLY_FILE=${applyMessage.result.value.file}`);
   } finally {
     cdp?.close();
     await new Promise((resolve) => server.close(resolve));
