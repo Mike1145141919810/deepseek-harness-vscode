@@ -1,113 +1,241 @@
-# DeepSeek Harness for VS Code
+<p align="center">
+  <img src="./extension/media/icon.svg" width="96" height="96" alt="DeepSeek Harness for VS Code 图标">
+</p>
 
-把 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Web GUI 嵌入 VS Code（编辑器面板 / 侧边栏）运行。
+<h1 align="center">DeepSeek Harness for VS Code</h1>
 
-**Desktop VS Code only · Local Extension Host only · Remote / WSL / vscode.dev unsupported**（扩展声明 `extensionKind: ["workspace"]`，需要本地 Node 环境来拉起并管理 `dsh web` 进程）。
+<p align="center">
+  在 VS Code 中运行完整的 DeepSeek Harness Web GUI，并提供安全、显式的编辑器联动。
+</p>
 
-> 可运行性验证步骤与结果记录见 [VERIFICATION.md](./VERIFICATION.md)。
+<p align="center">
+  <img alt="Release" src="https://img.shields.io/badge/release-v0.2.0-2563eb">
+  <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-%5E1.90.0-007ACC?logo=visualstudiocode&logoColor=white">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Desktop%20VS%20Code-4b5563">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
+</p>
+
+> [!IMPORTANT]
+> 本扩展仅支持桌面版 VS Code 和本地 Extension Host。Remote SSH、Dev Containers、WSL、Codespaces 与 `vscode.dev` 暂不支持。
+
+DeepSeek Harness for VS Code 会在本机启动 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) Web 服务，并将原始 GUI 嵌入编辑器面板或活动栏侧边栏。DSH 的会话、Skills、审批和设置界面保持不变；可选 bridge 在此基础上增加打开文件、共享选区、只读 Diff 和确认后写回能力。
+
+本项目是社区扩展，不隶属于 DeepSeek 官方。扩展不捆绑或重新分发 DSH 本体。
+
+## 功能
+
+| 能力 | 说明 | 状态 |
+|---|---|:---:|
+| 完整 DSH GUI | 在编辑器面板、活动栏侧边栏或系统浏览器中使用 DSH | ✅ |
+| 本地服务管理 | 自动选端口、健康检查、异常重启、stale 实例检测和进程树清理 | ✅ |
+| 多窗口复用 | 多个 VS Code 窗口共享同一个本地 DSH 实例 | ✅ |
+| Open in VS Code | 从 DSH 产物行打开文件并定位到指定行列 | ✅ |
+| 显式共享上下文 | 仅在用户点击时共享光标位置或有界选区，不自动读取全文 | ✅ |
+| 只读 Diff | 使用内存虚拟文档在 VS Code 中预览 DSH 已产生的变更 | ✅ |
+| 确认后写回 | DSH 只提交提案；VS Code 原生 Diff、模态确认和重复校验后才修改缓冲区 | ✅ |
+| Headless 任务 | 在 VS Code 集成终端运行一次性 DSH 任务 | ✅ |
 
 ## 工作原理
 
-扩展在你的机器上拉起一个 `dsh web` 服务（强制绑定 `127.0.0.1`，端口由扩展预分配），然后用 Webview 面板或侧边栏中的 iframe 加载它。DSH 前端与后端**零改动**，所有会话、skill、审批、设置页面原样可用。
-
+```mermaid
+flowchart LR
+    U[用户] --> V[VS Code 扩展]
+    V -->|启动并管理| D["dsh web<br/>127.0.0.1:随机端口"]
+    V -->|Panel / Sidebar iframe| G[DSH Web GUI]
+    G <-->|HTTP + WebSocket| D
+    G <-->|严格 postMessage 协议| V
+    V -->|打开 / 读取 / 预览 / 确认写回| E[VS Code 编辑器]
 ```
-VS Code Extension Host                DSH (你的机器)
-─────────────────────                ─────────────────
-dsh.open ──► 预分配端口 ──► spawn dsh web --host 127.0.0.1 --port N
-Panel / Sidebar ─iframe─► http://127.0.0.1:N  (SPA + /api + WebSocket)
-```
 
-## 前置条件
+- 服务固定绑定 `127.0.0.1`，端口由扩展预分配。
+- iframe 直接加载 DSH 的 SPA、API 与 WebSocket，不修改 DSH 前后端。
+- Bridge 消息经过 iframe source、精确 origin、字段结构和大小限制校验。
+- 文件写回授权只发生在 VS Code 原生模态确认中，iframe 按钮本身不具备写权限。
 
-- 已安装 **dsh**（`dsh` 在 PATH 上，或在设置 `dsh.binPath` 里指向它的 `lib/bin.js`）。
-- 桌面版 VS Code ≥ 1.90。
-- 本扩展**不捆绑** dsh；也不默认联网下载（`dsh.allowNpxFallback` 默认关闭）。
+## 环境要求
 
-## 安装（开发 / 本地）
+- 桌面版 VS Code `1.90.0` 或更高版本。
+- 本机已安装 DSH，且 `dsh` 位于 `PATH`；也可通过 `dsh.binPath` 指向 DSH 的 `lib/bin.js`。
+- Node.js 环境可供 DSH 使用。
+- 如需启用 VS Code bridge，本机还需提供 `pnpm`，因为 `dsh plugin` 会调用它安装插件。
+
+## 安装
+
+当前版本以本地 VSIX 方式安装。
 
 ```powershell
+git clone https://github.com/Mike1145141919810/deepseek-harness-vscode.git
 cd deepseek-harness-vscode
 npm install --prefix extension
 npm run package
-code --install-extension extension\dsh-vscode-0.2.0.vsix
+code --install-extension .\extension\dsh-vscode-0.2.0.vsix
 ```
 
-调试：在仓库根目录按 F5（使用 `Run Extension` 配置，自动编译并启动扩展开发宿主）。
+安装后执行 `Developer: Reload Window`，然后运行 `DSH: Check Installation` 检查 DSH 是否可用。
 
-### 启用 Open in VS Code（Phase 2A，可选）
+### 启用 VS Code Bridge
 
-1. 打开命令面板，执行 `DSH: Install VS Code Bridge`。
-2. 阅读模态确认内容并选择 **Install**（已安装时显示 **Reinstall**）。
+Bridge 为可选组件，用于编辑器原生联动：
+
+1. 打开命令面板，运行 `DSH: Install VS Code Bridge`。
+2. 阅读原生模态确认内容，选择 **Install**；已安装时显示 **Reinstall**。
 3. 安装完成后选择 **Restart DSH**。
+4. 再次运行 `DSH: Check Installation`，确认输出包含 `bridge: READY`。
 
-桥接包已包含在 VSIX 中，不需要源码仓库。命令会调用 `dsh plugin --profile web add`，幂等补齐 web profile 的 loader 条目；需要修改 `cordis.patch.yml` 时会先保留备份。执行 `DSH: Check Installation` 可查看 `bridge: READY` 或具体缺失项。
+Bridge 已包含在 VSIX 中，不依赖源码仓库。安装命令会调用 `dsh plugin --profile web add`，并幂等更新 web profile 的 loader 配置；修改 `cordis.patch.yml` 前会保留备份。
 
-> `dsh plugin` 内部调用 `pnpm`，因此启用桥接功能时仍需本机可用的 `pnpm`。扩展只捆绑桥接插件，不捆绑 DSH 本体。
+## 快速开始
 
-## 使用
+1. 在 VS Code 中打开一个本地文件夹或工作区。
+2. 运行 `DSH: Open DeepSeek Harness`，或点击状态栏中的 `DSH`。
+3. 在 DSH GUI 中创建会话并执行任务。
+4. 如已启用 bridge，可在 DSH 中显式打开文件、共享编辑器上下文、预览 Diff 或提交写回提案。
 
-- 命令面板 `DSH: Open DeepSeek Harness`（或点击状态栏 `DSH`）。打开位置由 `dsh.openIn` 决定：`"panel"` 编辑器区面板、`"sidebar"` 活动栏侧边栏、`"browser"` 系统默认浏览器。
-- 活动栏机器人图标就是 DSH 侧边栏：服务未启动时显示 Open 按钮；已启动则直接嵌入完整 GUI（不自动拉起服务）。
-- 面板内即为 DSH 完整 GUI；隐藏/切走面板时服务继续运行，会话不中断。
-- 多窗口共享同一实例：第二个窗口打开 DSH 时自动复用已运行的服务（不重复拉起）；在附加窗口执行 `Stop Server` 只是断开连接，不会杀掉其他窗口的服务。
-- `DSH: Run Task (headless)`：在集成终端里跑一次 `dsh --profile headless "<task>"`，适合不需要 GUI 会话的一次性任务。
-- 服务中途崩溃时自动重启一次，面板/侧边栏切换到重连页（带 Retry 按钮）；恢复后 iframe 自动重新加载。
-- `DSH: Open in Browser` 用系统默认浏览器打开同一实例。
-- **Phase 2A（原生编辑器联动）**：执行 `DSH: Install VS Code Bridge` 后，DSH 的“产物”文件行会显示 **Open in VS Code** 按钮；点击后通过 `postMessage` 桥接到 VS Code 扩展，用 `showTextDocument` 在编辑器里打开对应文件（支持可选行号）。
-- **Phase 2B（显式上下文共享）**：会话输入框工具行可把最后一个本地编辑器的光标或有界选区显式注入当前 DSH 会话；无选区时不会读取全文，也不会唤醒空闲会话。
-- **Phase 2C（只读 Diff）**：成功的文件变更会显示 **在 VS Code 中预览变更**；扩展只用 DSH 已持久化的上下文片段创建内存虚拟文档，不读取或写入目标文件。
-- **Phase 2D（确认后写回）**：DSH 的 `vscode_apply_diff` 只生成单文件编辑提案；点击 **在 VS Code 中审阅并应用** 后，由 VS Code 展示 Diff 和原生模态确认。扩展仅允许可信本地工作区内已有的普通文本文件，确认前后均校验路径、dirty 状态、完整 preimage 与文档版本；成功后只修改编辑器缓冲区，形成一个 Undo 单元，绝不自动保存。
+打开位置由 `dsh.openIn` 控制：
 
-## 设置（`dsh.*`）
+- `panel`：编辑器区域中的 Webview Panel，默认选项。
+- `sidebar`：活动栏中的 DeepSeek Harness 侧边栏。
+- `browser`：使用系统默认浏览器打开同一服务。
 
-| 设置 | 默认 | 说明 |
-|---|---|---|
-| `dsh.binPath` | `""` | dsh 的 `lib/bin.js` 或包含它的目录；空 = 自动在 PATH 找 |
-| `dsh.openIn` | `"panel"` | `"panel"`（编辑器区面板）、`"sidebar"`（活动栏侧边栏）或 `"browser"`（系统浏览器） |
-| `dsh.allowNpxFallback` | `false` | 本地找不到 dsh 时允许用 npx 引导安装（需联网） |
-| `dsh.autoStart` | `false` | VS Code 启动时自动拉起服务 |
-| `dsh.autoWorkspace` | `true` | 打开 GUI 表面（面板/侧边栏）时自动把 VS Code 当前工作区文件夹注册为 DSH 工作区 |
-| `dsh.extraArgs` | `[]` | 附加 dsh 参数；`--host`/`--port`/`--trusted-host` 会被拒绝 |
-| `dsh.pinnedVersion` | `"0.1.1-rc.2"` | npx 兜底使用的版本 |
+隐藏或重新打开面板不会结束会话。DSH 异常退出时，扩展会自动重启一次并让 Webview 进入可重试的重连状态。
+
+## 命令
+
+| 命令面板名称 | 用途 |
+|---|---|
+| `DSH: Open DeepSeek Harness` | 按当前 `dsh.openIn` 设置打开 GUI |
+| `DSH: Open in Browser` | 在系统默认浏览器打开当前实例 |
+| `DSH: Restart Server` | 重启本地 DSH Web 服务 |
+| `DSH: Stop Server` | 停止当前窗口拥有的服务，或与共享实例断开 |
+| `DSH: Show Server URL` | 显示当前回环地址与端口 |
+| `DSH: Check Installation` | 检查 DSH 与 bridge 安装状态 |
+| `DSH: Install VS Code Bridge` | 安装或重新安装随 VSIX 提供的 bridge |
+| `DSH: Run Task (headless)` | 在集成终端运行一次性 headless 任务 |
+
+## 编辑器联动
+
+### 打开文件
+
+DSH 的产物文件行会显示 **Open in VS Code**。点击后，扩展使用 `showTextDocument` 打开本地文件；消息包含行列信息时会同步定位光标。
+
+### 共享编辑器上下文
+
+会话输入框工具行提供 **共享编辑器上下文** 按钮：
+
+- 有选区时只共享受大小限制的选中文本。
+- 无选区时只共享文件 URI、语言、版本和光标位置，不读取全文。
+- 上下文只注入点击时绑定的会话，不会自动唤醒空闲会话。
+
+### 只读 Diff
+
+成功的文件变更会显示 **在 VS Code 中预览变更**。预览内容来自 DSH 已持久化的 `oldText` / `newText`，并通过内存虚拟文档打开 `vscode.diff`；预览过程不会读取、创建或修改目标文件。
+
+### 确认后写回
+
+`vscode_apply_diff` 只能生成单文件编辑提案。用户点击 **在 VS Code 中审阅并应用** 后，扩展执行以下流程：
+
+1. 校验请求结构、摘要、工作区信任、文件类型和真实路径边界。
+2. 校验编辑器未修改，且当前全文与提案 preimage 完全一致。
+3. 打开只读 Diff，并显示 VS Code 原生模态确认。
+4. 用户明确确认后再次执行全部安全检查。
+5. 使用一个 Undo 单元替换编辑器缓冲区，但不自动保存。
+
+首版只支持可信本地工作区内已经存在的单个普通文本文件。不支持创建、删除、移动、重命名、多文件事务、二进制文件或 Remote URI。详细门槛见 [Phase 2D 写回安全说明](./docs/phase-2d-safety.md)。
+
+## 设置
+
+| 设置 | 默认值 | 说明 |
+|---|---:|---|
+| `dsh.binPath` | `""` | DSH 的 `lib/bin.js` 或包含它的目录；空值表示从 `PATH` 自动查找 |
+| `dsh.openIn` | `"panel"` | GUI 打开位置：`panel`、`sidebar` 或 `browser` |
+| `dsh.allowNpxFallback` | `false` | 找不到本地 DSH 时允许通过 npx 引导；开启后可能访问网络 |
+| `dsh.autoStart` | `false` | VS Code 启动时自动启动 DSH 服务 |
+| `dsh.autoWorkspace` | `true` | 打开 GUI 时自动将当前 VS Code 工作区注册到 DSH |
+| `dsh.extraArgs` | `[]` | 传给 DSH 的附加参数；禁止覆盖 `--host`、`--port`、`--trusted-host` |
+| `dsh.pinnedVersion` | `"0.1.1-rc.2"` | npx 兜底使用的 DSH 版本 |
+
+## 安全设计
+
+- DSH Web 服务只能监听 `127.0.0.1`，安全相关 CLI 参数不可被设置覆盖。
+- Webview CSP 只允许加载本地 nonce 脚本和回环地址 iframe。
+- 双向消息使用精确 iframe source、origin、`requestId` 与 `sessionId` 关联。
+- 输入执行严格字段、类型、路径和大小校验，拒绝未知字段及超限内容。
+- 写回前后均检查 workspace trust、lexical/canonical path、符号链接逃逸、dirty 状态、全文 preimage 和文档版本。
+- 写回请求有超时、单请求和防重放门禁；失败时不会降级为直接文件系统写入。
+- 成功写回只修改编辑器缓冲区，磁盘在用户主动保存前保持不变，并可用一次 Undo 恢复。
+- VS Code 关闭或重载时，扩展会结束其拥有的 DSH 进程树并验证端口释放。
+
+## 开发与验证
+
+```powershell
+# 类型检查、构建、单元测试和真实 DSH 集成测试
+npm test
+
+# 真实 VS Code Extension Host 烟测
+npm run smoke
+
+# 生成 VSIX
+npm run package
+```
+
+当前 `v0.2.0` 验证基线：
+
+- 18 个测试文件、126 项测试通过，其中包含 2 项真实 DSH Web 集成测试。
+- 9 项真实 VS Code Extension Host 烟测通过。
+- 安装态真实 DSH GUI 的上下文、Diff 和写回按钮链路通过。
+- VSIX 打包与本机覆盖安装通过。
+
+完整步骤和测试记录见 [VERIFICATION.md](./VERIFICATION.md)。在仓库根目录按 `F5` 可启动 `Run Extension` 开发宿主。
 
 ## 故障排查
 
-- **`dsh was not found`**：运行 `DSH: Check Installation` 查看诊断；把 `dsh.binPath` 指向 dsh 的 `lib/bin.js`，例如 `C:\Users\<你>\AppData\Local\npm-cache\_npx\<hash>\node_modules\@deepseek-ai\dsh\lib\bin.js`。
-- **`dsh server did not become healthy`**：打开输出面板（`DeepSeek Harness` 通道）看子进程日志。
-- **面板空白 / 加载失败**：先试 `DSH: Restart Server`；仍不行把 `dsh.openIn` 改为 `"browser"`。
-- **点了 Open in VS Code 没反应**：先执行 `DSH: Check Installation`，确认输出含 `bridge: READY`；否则运行 `DSH: Install VS Code Bridge`。仍无反应时执行 `Developer: Reload Window`，并查看输出通道是否出现 `open in editor requested` / `opened in editor` / `open in editor failed`。
-- **Diff 预览按钮没出现**：只有成功执行并带 Diff 结果的文件写入/编辑会显示；重新安装 bridge、重启 DSH，并确认输出通道没有 `diff preview failed`。
-- **写回按钮没出现或被拒绝**：需由 agent 显式调用 `vscode_apply_diff` 生成提案。重新安装 bridge 并重启 DSH；同时确认工作区受信任、文件位于工作区且已存在、编辑器未有未保存更改，并且文件内容仍与提案 preimage 一致。
-- 输出通道里有每次实例的 `pid`、端口、启动时间与实例 ID；实例记录持久化到 globalStorage，下次启动会做 stale 检测（旧 PID 已死/端口失效则清记录并告警）。
+<details>
+<summary><strong>找不到 DSH</strong></summary>
 
-## 安全
+运行 `DSH: Check Installation` 查看探测链。确认 `dsh` 位于 `PATH`，或把 `dsh.binPath` 指向有效的 `lib/bin.js`。
 
-- 服务只绑定 `127.0.0.1`；安全相关参数不允许通过 `extraArgs` 覆盖。
-- Webview 的 CSP 仅允许 `http://127.0.0.1:*` 帧；父文档只执行带每次渲染 nonce 的本地桥接脚本，不允许远程脚本。
-- Phase 2D 的 iframe 只负责发起提案，写入授权只能来自 VS Code 原生模态确认；请求受严格字段/大小、精确 source/origin、workspace realpath、preimage、版本、防重放和超时门槛保护。
-- 关闭 VS Code / 重载窗口时扩展会结束 dsh 进程树并校验端口释放；异常崩溃场景在下次启动时做 stale 检测并告警。
+</details>
 
-## MVP 验收清单（人工）
+<details>
+<summary><strong>服务未能启动或面板空白</strong></summary>
 
-- [x] 活动栏图标可打开面板，GUI 完整加载（含 skill 列表）
-- [x] 创建 session、发任务、agent 执行并返回结果
-- [x] 审批/提问弹窗可用
-- [x] agent 改动文件在资源管理器中可见
-- [x] 面板隐藏/重开后会话仍在
-- [x] `Stop Server` 后进程列表无残留 dsh 进程（重启后亦然）
-- [x] 删除 PATH 里的 dsh 后报错信息可操作
-- [x] 服务中途崩溃后面板显示重连页，自动重启后 iframe 自动恢复
-- [x] 强杀残留 dsh 后下次启动 stale 检测清记录并告警
-- [x] `dsh.openIn: "sidebar"` 时活动栏侧边栏完整加载 GUI，重连页/Retry 正常
-- [x] 多窗口打开 DSH 复用同一实例（第二个窗口不新增 dsh 进程）
-- [ ] `DSH: Run Task (headless)` 在集成终端执行一次性任务
-- [x] Phase 2A 桥接包随 VSIX 发布，一键安装后端在隔离 `DSH_HOME` 真实验证通过
-- [ ] Phase 2A：安装 `dsh-vscode-bridge` 插件后，DSH 产物文件行出现 **Open in VS Code** 按钮，点击在编辑器打开对应文件
-- [x] Phase 2B：安装态真实 GUI 显式共享选区，精确会话命令匹配
-- [x] Phase 2C：安装态真实 GUI 点击 Diff 预览按钮，VS Code 打开只读虚拟比较视图
-- [x] Phase 2D：安装态真实 GUI 发送严格写回提案；VS Code 原生 smoke 验证确认、取消、安全拒绝、单 Undo 与不自动保存
-- [x] VSIX 打包成功（`npm run package`）
+在输出面板选择 `DeepSeek Harness` 通道查看子进程日志，尝试 `DSH: Restart Server`。如 Webview 仍无法加载，可暂时将 `dsh.openIn` 设为 `browser`。
+
+</details>
+
+<details>
+<summary><strong>编辑器联动按钮未出现或无响应</strong></summary>
+
+运行 `DSH: Check Installation`，确认结果包含 `bridge: READY`。否则执行 `DSH: Install VS Code Bridge`，重启 DSH，并在必要时运行 `Developer: Reload Window`。
+
+</details>
+
+<details>
+<summary><strong>写回提案被拒绝</strong></summary>
+
+确认 VS Code 工作区已受信任、目标是工作区内已存在的普通文本文件、编辑器没有未保存更改，并且文件内容自提案生成后没有变化。安全门槛不满足时扩展会保持零写入。
+
+</details>
+
+## 项目文档
+
+- [实施计划与路线图](./PLAN.md)
+- [架构说明](./docs/architecture.md)
+- [Phase 2D 写回安全门槛](./docs/phase-2d-safety.md)
+- [验证步骤与结果](./VERIFICATION.md)
+- [第三方声明](./THIRD_PARTY_NOTICES.md)
+
+## 路线图
+
+- Phase 1：DSH GUI 嵌入、进程生命周期和多窗口复用。✅
+- Phase 2A：Open in VS Code。✅
+- Phase 2B：显式共享编辑器上下文。✅
+- Phase 2C：只读 Diff。✅
+- Phase 2D：原生确认后的安全写回。✅
+- Phase 3：主题同步、设置深链、CI、Open VSX / Visual Studio Marketplace 发布。规划中。
 
 ## License
 
-MIT。本扩展展示 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（MIT）的 Web GUI，不改动、不捆绑其代码，详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+[MIT](./LICENSE) © 2026 Michael Lee
+
+DeepSeek Harness 由其作者依照 MIT License 发布。本扩展仅启动并展示用户本机已有的 DSH，详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
