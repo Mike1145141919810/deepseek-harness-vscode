@@ -1,6 +1,6 @@
 {
   "name": "dsh-vscode-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH web plugin for editor context, read-only diffs, and explicitly confirmed VS Code edit proposals.",
   "private": true,
   "type": "module",

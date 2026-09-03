@@ -2,7 +2,7 @@
   "name": "dsh-vscode",
   "displayName": "DeepSeek Harness",
   "description": "Run the DeepSeek Harness web GUI inside VS Code. Desktop VS Code only; local extension host only (Remote / vscode.dev unsupported).",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "michael-lee",
   "license": "MIT",
   "repository": {

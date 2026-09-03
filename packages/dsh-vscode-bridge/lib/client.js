@@ -54,6 +54,8 @@ window.__ModuleLoader__.load({
     const MAX_SESSION_ID_CHARS = 512;
     const MAX_APPLY_FILE_CHARS = 32_768;
     const MAX_APPLY_TEXT_CHARS = 1_048_576;
+    const SESSION_HEALTH_CHECK_INTERVAL_MS = 5_000;
+    const SESSION_HEALTH_MISMATCH_CONFIRMATIONS = 2;
 
     class EditorContextBridgeError extends Error {
       constructor(code, message) {
@@ -622,6 +624,99 @@ window.__ModuleLoader__.load({
       }, "*");
     }
 
+    /**
+     * Detect a lost idle transition in the embedded DSH client. The Host list
+     * is an independent authoritative read: requiring the same mismatch twice
+     * avoids refreshing during an ordinary turn-completion race. A reload is
+     * deliberately reserved for the confirmed mismatch because it rebuilds
+     * both the history window and the server-owned queue mirror.
+     */
+    function createSessionHealthWatchdog(options) {
+      const currentWindow = options.windowObject ?? window;
+      const intervalMs = options.intervalMs ?? SESSION_HEALTH_CHECK_INTERVAL_MS;
+      const confirmations = options.confirmations ?? SESSION_HEALTH_MISMATCH_CONFIRMATIONS;
+      const scheduleTimeout = options.setTimeout ?? currentWindow.setTimeout.bind(currentWindow);
+      const cancelTimeout = options.clearTimeout ?? currentWindow.clearTimeout.bind(currentWindow);
+      const reload = options.reload ?? (() => currentWindow.location.reload());
+      const isVisible = options.isVisible ?? (() => currentWindow.document?.visibilityState !== "hidden");
+      let timer;
+      let disposed = false;
+      let checking = false;
+      let mismatchSessionId;
+      let mismatchCount = 0;
+
+      const resetMismatch = () => {
+        mismatchSessionId = undefined;
+        mismatchCount = 0;
+      };
+      const schedule = () => {
+        if (!disposed) timer = scheduleTimeout(check, intervalMs);
+      };
+      const check = async () => {
+        if (disposed || checking) return;
+        checking = true;
+        try {
+          if (!isVisible()) {
+            resetMismatch();
+            return;
+          }
+          const before = options.sessions.list.getSnapshot();
+          const sessionId = before.current;
+          const local = sessionId === undefined
+            ? undefined
+            : options.sessions.binding(sessionId)?.session?.getSnapshot?.();
+          if (sessionId === undefined || local?.running !== true) {
+            resetMismatch();
+            return;
+          }
+
+          const response = await options.api.sessions.list({});
+          if (!response?.result?.ok) {
+            resetMismatch();
+            return;
+          }
+          const after = options.sessions.list.getSnapshot();
+          const currentLocal = after.current === sessionId
+            ? options.sessions.binding(sessionId)?.session?.getSnapshot?.()
+            : undefined;
+          const authoritative = response.result.value.items.find(
+            (item) => item.sessionId === sessionId,
+          );
+          if (after.current !== sessionId || currentLocal?.running !== true || authoritative?.running !== false) {
+            resetMismatch();
+            return;
+          }
+
+          if (mismatchSessionId === sessionId) mismatchCount += 1;
+          else {
+            mismatchSessionId = sessionId;
+            mismatchCount = 1;
+          }
+          if (mismatchCount >= confirmations) {
+            disposed = true;
+            if (timer !== undefined) cancelTimeout(timer);
+            console.warn(`[dsh-vscode-bridge] repairing stale running state for ${sessionId}`);
+            reload();
+          }
+        } catch {
+          resetMismatch();
+        } finally {
+          checking = false;
+          schedule();
+        }
+      };
+
+      // The bridge must never alter a standalone browser tab.
+      if (currentWindow.parent !== currentWindow) schedule();
+      return {
+        dispose() {
+          disposed = true;
+          if (timer !== undefined) cancelTimeout(timer);
+          resetMismatch();
+        },
+      };
+    }
+
     /** Required services on the client root context. */
     const inject = [
       "slots",
@@ -805,12 +900,18 @@ window.__ModuleLoader__.load({
       const sessions = ctx.sessions;
       const contextRequester = createEditorContextRequester();
       const applyEditRequester = createApplyEditRequester();
+      const sessionHealthWatchdog = createSessionHealthWatchdog({
+        windowObject: window,
+        api: connection.api,
+        sessions,
+      });
       ctx.conversationEvents.register(diffPreviewsDefinition);
       ctx.conversationEvents.register(applyProposalsDefinition);
       ctx.effect(
         () => () => {
           contextRequester.dispose();
           applyEditRequester.dispose();
+          sessionHealthWatchdog.dispose();
         },
         "dsh-vscode-bridge: VS Code request bridges",
       );
@@ -868,6 +969,7 @@ window.__ModuleLoader__.load({
     exports.applyProposalsDefinition = applyProposalsDefinition;
     exports.applyProposalsForClosing = applyProposalsForClosing;
     exports.VSCodeApplyButtons = VSCodeApplyButtons;
+    exports.createSessionHealthWatchdog = createSessionHealthWatchdog;
     exports.inject = inject;
     return module.exports;
   },

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Release" src="https://img.shields.io/badge/release-v0.2.0-2563eb">
+  <img alt="Release" src="https://img.shields.io/badge/release-v0.2.1-2563eb">
   <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-%5E1.90.0-007ACC?logo=visualstudiocode&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Desktop%20VS%20Code-4b5563">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
@@ -68,7 +68,7 @@ git clone https://github.com/Mike1145141919810/deepseek-harness-vscode.git
 cd deepseek-harness-vscode
 npm install --prefix extension
 npm run package
-code --install-extension .\extension\dsh-vscode-0.2.0.vsix
+code --install-extension .\extension\dsh-vscode-0.2.1.vsix
 ```
 
 安装后执行 `Developer: Reload Window`，然后运行 `DSH: Check Installation` 检查 DSH 是否可用。
@@ -178,12 +178,14 @@ npm run smoke
 npm run package
 ```
 
-当前 `v0.2.0` 验证基线：
+当前 `v0.2.1` 验证基线：
 
-- 18 个测试文件、126 项测试通过，其中包含 2 项真实 DSH Web 集成测试。
+- 19 个测试文件、129 项测试通过，其中包含 2 项真实 DSH Web 集成测试。
 - 9 项真实 VS Code Extension Host 烟测通过。
 - 安装态真实 DSH GUI 的上下文、Diff 和写回按钮链路通过。
 - VSIX 打包与本机覆盖安装通过。
+- 嵌入页若漏收会话结束状态，会在两次权威状态校验后自动恢复，不再永久停留在 `Deep diving...`。
+- 扩展托管服务使用 `--no-open`，启动或重启时不会再额外弹出系统浏览器。
 
 完整步骤和测试记录见 [VERIFICATION.md](./VERIFICATION.md)。在仓库根目录按 `F5` 可启动 `Run Extension` 开发宿主。
 

@@ -294,7 +294,9 @@ export function pickFreePort(): Promise<number> {
 
 /** Build the final dsh argv: launcher subcommand + fixed safety flags + extras. */
 export function buildWebArgs(port: number, extraArgs: string[]): string[] {
-  return ['web', '--host', HOST, '--port', String(port), ...extraArgs];
+  // The extension owns the GUI surface; opening the system browser would
+  // create an unnecessary second client on every start/restart.
+  return ['web', '--host', HOST, '--port', String(port), '--no-open', ...extraArgs];
 }
 
 /** Probe the server root; resolves true when it answers (any HTTP status). */

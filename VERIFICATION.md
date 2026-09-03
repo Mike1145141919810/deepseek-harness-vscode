@@ -183,11 +183,11 @@ sidebar view resolved (visible=true)
 
 ```powershell
 cd D:\michael_codes\dsh-vscode\extension
-npm run package                        # 产出 dsh-vscode-0.2.0.vsix
-code --install-extension dsh-vscode-0.2.0.vsix --force
+npm run package                        # 产出 dsh-vscode-0.2.1.vsix
+code --install-extension dsh-vscode-0.2.1.vsix --force
 ```
 
-安装后：执行 `Developer: Reload Window`（或完全退出并重开 VS Code）→ 点活动栏机器人图标 → 执行 `DSH: Install VS Code Bridge` → 重复 §2 的 A/B/C/E/F/G/H/I/J。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.2.0`。
+安装后：执行 `Developer: Reload Window`（或完全退出并重开 VS Code）→ 点活动栏机器人图标 → 执行 `DSH: Install VS Code Bridge` → 重复 §2 的 A/B/C/E/F/G/H/I/J。扩展安装目录为 `~/.vscode/extensions/michael-lee.dsh-vscode-0.2.1`。
 
 ---
 
@@ -195,7 +195,7 @@ code --install-extension dsh-vscode-0.2.0.vsix --force
 
 | 项 | 结果 | 日期 | 备注 |
 |---|---|---|---|
-| 自动化测试（18 文件 / 126 测试） | ✅ | 2026-09-02 | 含 Phase 2D 协议、Host/client、Webview、执行安全门槛及真实 dsh web 集成 2/2 |
+| 自动化测试（19 文件 / 129 测试） | ✅ | 2026-09-03 | 新增嵌入页会话健康检查回归；含 Phase 2D 协议、Host/client、Webview、执行安全门槛及真实 dsh web 集成 2/2 |
 | npm run test:smoke（9 passing） | ✅ | 2026-09-02 | 含 Phase 2D 确认/取消、单 Undo、不保存、安全拒绝与 Webview 关联 |
 | A 正常打开 + 记录 | ✅ | 2026-08-16 | — |
 | B Stop + 端口释放 | ✅ | 2026-08-16 | — |
@@ -208,7 +208,7 @@ code --install-extension dsh-vscode-0.2.0.vsix --force
 | H Phase 2B 显式共享上下文 | ✅ | 2026-08-29 | 安装态真实 DSH GUI 按钮点击成功；父响应收到，Host `/vscode-context` 匹配，按钮显示“已共享选区” |
 | I Phase 2C 只读 Diff | ✅ | 2026-08-29 | 安装态 DSH 模块系统导入真实 bridge，实际 React 按钮渲染/点击成功；父窗口收到绝对路径和 1 个合法片段；扩展 smoke 确认零文件创建 |
 | J Phase 2D 确认后写回 | ✅ | 2026-09-02 | 安装态真实 bridge 提案按钮/关联响应通过；VS Code smoke 验证原生确认、取消、单 Undo、零自动保存及安全拒绝 |
-| VSIX 打包 + 安装 | ✅ | 2026-09-02 | `dsh-vscode-0.2.0.vsix`，20 文件 / 51.27 KB；本机覆盖安装，DSH web profile bridge 链接同步至 0.2.0 |
+| VSIX 打包 + 安装 | ✅ | 2026-09-03 | `dsh-vscode-0.2.1.vsix`，20 文件 / 52.14 KB；本机覆盖安装，DSH web profile bridge 链接同步至 0.2.1 |
 
 ---
 

@@ -20,7 +20,9 @@ const baseSettings: DshSettings = {
 describe('buildWebArgs', () => {
   it('always puts the fixed host/port first, then extraArgs', () => {
     const args = buildWebArgs(43210, ['--patch', 'x.yml']);
-    assert.deepEqual(args, ['web', '--host', '127.0.0.1', '--port', '43210', '--patch', 'x.yml']);
+    assert.deepEqual(args, [
+      'web', '--host', '127.0.0.1', '--port', '43210', '--no-open', '--patch', 'x.yml',
+    ]);
   });
 });
 
