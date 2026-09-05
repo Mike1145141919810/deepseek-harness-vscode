@@ -388,7 +388,7 @@ describe('DSH client diff-preview wiring', () => {
       {
         kind: 'turn',
         turn: 7,
-        key: 'dshVscodeDiffPreviews',
+        key: 'dsh-vscode-diff-previews',
         value: {
           changes: [
             { seq: 14, path: 'src/a.ts', oldText: 'one\n', newText: 'two\n' },

@@ -237,7 +237,7 @@ describe('DSH client apply-proposal turn data', () => {
         'turn',
       ))),
       {
-        kind: 'turn', turn: 3, key: 'dshVscodeApplyProposals',
+        kind: 'turn', turn: 3, key: 'dsh-vscode-apply-proposals',
         value: { proposals: [{ seq: 9, ...proposal }] },
       },
     );

@@ -516,7 +516,7 @@ window.__ModuleLoader__.load({
           : {
               kind: "turn",
               turn: context.state.turn,
-              key: "dshVscodeDiffPreviews",
+              key: "dsh-vscode-diff-previews",
               value: { changes: context.state.changes },
             },
     };
@@ -587,7 +587,7 @@ window.__ModuleLoader__.load({
           : {
               kind: "turn",
               turn: context.state.turn,
-              key: "dshVscodeApplyProposals",
+              key: "dsh-vscode-apply-proposals",
               value: { proposals: context.state.proposals },
             },
     };
@@ -738,7 +738,7 @@ window.__ModuleLoader__.load({
       );
       if (paths.length === 0) return null;
       const previews = diffPreviewsForClosing(
-        owner.turn.data.get("dshVscodeDiffPreviews"),
+        owner.turn.data.get("dsh-vscode-diff-previews"),
         owner.seq,
       ).filter((preview) => paths.includes(preview.path));
       return { paths, previews };
@@ -746,7 +746,7 @@ window.__ModuleLoader__.load({
 
     function selectApplyProposals(owner) {
       const proposals = applyProposalsForClosing(
-        owner.turn.data.get("dshVscodeApplyProposals"),
+        owner.turn.data.get("dsh-vscode-apply-proposals"),
         owner.seq,
       );
       return proposals.length === 0 ? null : proposals;
