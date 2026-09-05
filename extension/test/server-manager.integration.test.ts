@@ -6,7 +6,7 @@
  * Requires dsh to be discoverable: set DSH_BIN_PATH to dsh's lib/bin.js, or
  * have `dsh` on PATH. Skips otherwise.
  */
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
@@ -21,6 +21,19 @@ import { seedWorkspace, deleteWorkspace } from '../src/workspace-seed';
 
 const logs: string[] = [];
 const logger = { log: (message: string) => { logs.push(message); console.log('[dsh]', message); } };
+const integrationDshHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-integration-home-'));
+let previousDshHome: string | undefined;
+
+before(() => {
+  previousDshHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = integrationDshHome;
+});
+
+after(() => {
+  if (previousDshHome === undefined) delete process.env.DSH_HOME;
+  else process.env.DSH_HOME = previousDshHome;
+  fs.rmSync(integrationDshHome, { recursive: true, force: true });
+});
 
 const settings: DshSettings = {
   binPath: process.env.DSH_BIN_PATH ?? '',
@@ -197,6 +210,10 @@ describe('server-manager integration (real dsh web)', { timeout: 120000 }, () =>
 
       console.log('step: httpStatus');
       assert.equal(await httpStatus(url), 200);
+      assert.ok(
+        fs.existsSync(path.join(integrationDshHome, 'profiles', 'web', 'cordis.yml')),
+        'real dsh must initialize only the isolated integration-test home',
+      );
       console.log('step: wsProbe');
       assert.equal(await wsProbe(parsed.hostname, Number(parsed.port)), true);
 
